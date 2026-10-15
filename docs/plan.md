@@ -52,13 +52,14 @@ org-level tracker. rig has no beads store of its own (see `CLAUDE.md`).
 
 1. **Owner: answer the open questions in `design.md`** with stand-ins, so
    the post-public delivery path is known to work before the irreversible
-   step. In a test cloud environment, set the setup script to:
+   step. In a throwaway cloud environment (the snippet replaces its
+   `~/.claude/settings.json`), set the setup script to:
 
    ```bash
-   git clone --depth 1 https://github.com/<any public repo> /tmp/clone-test \
-       && echo cloned > /tmp/clone-test.ok
+   git clone --depth 1 https://github.com/<any public repo> ~/clone-test \
+       && echo cloned > ~/clone-test.ok
    mkdir -p ~/.claude
-   printf '%s\n' '{"hooks":{"SessionStart":[{"matcher":"startup","hooks":[{"type":"command","command":"echo SETUP-HOOK-FIRED; cat /tmp/clone-test.ok"}]}]}}' \
+   printf '%s\n' '{"hooks":{"SessionStart":[{"matcher":"startup","hooks":[{"type":"command","command":"echo SETUP-HOOK-FIRED; cat ~/clone-test.ok"}]}]}}' \
        > ~/.claude/settings.json
    ```
 
