@@ -17,15 +17,23 @@ once the relay works (step 4).
   firing on its own** — see step 3.
 - Plugin and marketplace manifests; one skill, `rig-provision`.
 - Templates for a member repo's `CLAUDE.md` and `REVIEW.md`.
-- CI: `bin/rig-check`, plus `bin/rig-denylist-check` once the
-  `RIG_DENYLIST` secret is set.
+- CI: `bin/rig-check` on every PR; a separate `pull_request_target`
+  workflow runs the base branch's `bin/rig-denylist-check` over history,
+  paths, metadata and refs, with the secret held in a `denylist`
+  environment restricted to `main`.
+- First independent security review done; its findings fixed (trusted
+  owners, `startup` matcher, pinned and digest-checked downloads, deadline
+  and restore-on-kill, stdin isolation, safe exclude patterns, stricter
+  denylist).
 
 ## Next
 
-1. **Owner: set the `RIG_DENYLIST` repository secret** — one private name per
-   line. Until it exists the denylist check is skipped.
-2. **Branch protection on `main`**: require the CI check; turn on automatic
-   deletion of merged branches.
+1. **Owner: create the `denylist` environment** (Settings → Environments):
+   deployment branches restricted to `main`, with an environment secret
+   `RIG_DENYLIST` — one distinctive private name per line. Do not add it as
+   a repository secret. Until it exists the denylist workflow fails.
+2. **Owner: protect tags** with a tag ruleset (no updates, no deletion)
+   before the first release tag.
 3. **Prove the hook fires.** Each cloud session is a fresh container, so an
    install from one session does not carry to the next, and a private rig
    cannot be cloned by the setup script (design.md, constraint 3). Before
@@ -48,12 +56,15 @@ once the relay works (step 4).
    escalates to a decision bead; supports a second-independent-review mode
    for sensitive areas; never merges what `REVIEW.md` reserves for the owner.
    Inherit the session's model — never pin a cheaper one.
-6. **Pin bd** to a release asset in `rig_install_bd` instead of the upstream
-   installer script.
-7. **Pilot on one private member**: add `.rig/setup.sh`, adopt the
+6. **Pilot on one private member**: add `.rig/setup.sh`, adopt the
    templates, enable the plugin for local sessions. Verify both delivery
    stages in a fresh cloud environment whose setup script runs
-   `bin/rig-install`. Resolve the open questions in `design.md`.
-8. **Second member**, replacing its own copies of setup, relay and reviewer.
-9. **Go public**: confirm the denylist check is clean across history, make
-   the repository public, tag a release, point environments at it.
+   `bin/rig-install --trusted-owners …`. Resolve the open questions in
+   `design.md`.
+7. **Second member**, replacing its own copies of setup, relay and reviewer.
+8. **Second independent security review** of everything since the first
+   one, with the findings fixed.
+9. **Go public**: squash history to a single commit (removes session links
+   and stale branches), confirm the denylist scan is clean, make the
+   repository public, tag a release, and point environments' setup
+   scripts at a pinned commit with `--trusted-owners`.

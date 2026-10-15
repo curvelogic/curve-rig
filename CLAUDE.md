@@ -27,8 +27,9 @@ necessary, not sufficient.
 bin/rig-install           stage 1: install into ~/.claude (setup script)
 bin/rig-check             the check command — run before every commit
 bin/rig-denylist-check    CI-only private-name check
-hooks/session-start.sh    stage 2: provision repos in the session
-lib/common.sh             logging, PATH, repo discovery
+hooks/session-start.sh    stage 2: provision trusted repos in the session
+lib/common.sh             logging, deadline, restores, discovery, trust
+lib/pins.sh               pinned versions and digests of every download
 lib/beads.sh              bd + dolt install, beads store bootstrap
 plugins/rig/              the Claude Code plugin (skills, agents)
 .claude-plugin/           marketplace manifest
@@ -43,14 +44,15 @@ bin/rig-check
 ```
 
 Runs `bash -n` and shellcheck on every script, and validates every JSON file
-and the plugin/marketplace manifests. CI runs the same, plus the denylist.
+and the plugin/marketplace manifests. CI runs the same; a separate workflow
+runs the denylist from the base branch (`.github/workflows/denylist.yml`).
 
 ## Workflow
 
 - Branch, commit, push, open a PR. Never commit to `main`.
-- Until rig's own reviewer agent exists, the owner reviews and merges. Once
-  it exists, rig uses it on itself, with the owner merging anything in
-  `REVIEW.md`'s sensitive areas.
+- The owner merges every PR except docs-only ones (see `REVIEW.md` for
+  why). Once rig's reviewer agent exists, it reviews every PR and may merge
+  docs-only ones.
 - Backlog: `docs/plan.md` for now. Beads arrives once the relay works —
   initialising it needs a push to `refs/dolt/data`, which a web session
   cannot make.
@@ -63,11 +65,17 @@ and the plugin/marketplace manifests. CI runs the same, plus the denylist.
   its own failure, so a half-provisioned session says which half.
 - The SessionStart hook always exits 0 — a failing hook must not stop the
   session from starting.
-- Never call `api.github.com` from provisioning: in a cloud session it is
-  scoped to the session's repositories. Use release-asset URLs and the
-  `releases/latest/download/` redirect instead.
-- Leave a member repo's working tree as you found it. If a tool rewrites a
-  tracked file (beads does), restore it.
+- Every download is an exact release asset pinned in `lib/pins.sh` with
+  its SHA-256, fetched with `rig_fetch` and checked with `rig_sha256_ok`.
+  Never `latest`, a moving branch, or an upstream install script. Never
+  `api.github.com` (in a cloud session it is scoped to the session's
+  repositories).
+- Run code from a member repository only after `rig_repo_trusted`.
+- Give everything the hook runs `</dev/null` and a timeout from
+  `rig_step_timeout`; send its output to `$RIG_LOG`.
+- Leave a member repo's working tree as you found it, even if killed:
+  `rig_restore_register` a backup before rewriting a tracked file.
+- Delete only what this run created.
 
 ## Prose
 

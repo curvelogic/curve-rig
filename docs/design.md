@@ -43,25 +43,33 @@ Still to verify in the pilot (see `plan.md`):
 
 ## Delivery: two stages
 
-**Stage 1 — `bin/rig-install`**, run by the environment setup script. No
-GitHub credentials needed (rig is public by then). It:
+**Stage 1 — `bin/rig-install`**, run by the environment setup script after
+it has fetched rig at a pinned commit. No GitHub credentials needed (rig is
+public by then). It:
 
-- installs rig at `$RIG_HOME` (default `~/.local/share/curve-rig`);
 - links the plugin's skills and agents into `~/.claude/skills` and
   `~/.claude/agents`;
-- registers `hooks/session-start.sh` as a user-level SessionStart hook in
-  `~/.claude/settings.json`, merging rather than overwriting.
+- records the trusted GitHub owners (`--trusted-owners`) in
+  `~/.config/curve-rig/trusted-owners`;
+- registers `hooks/session-start.sh` as a user-level SessionStart hook with
+  the `startup` matcher in `~/.claude/settings.json`, merging rather than
+  overwriting.
 
 **Stage 2 — `hooks/session-start.sh`**, a user-level SessionStart hook, so it
-fires in single- and multi-repo sessions alike. Cloud only
-(`CLAUDE_CODE_REMOTE=true`); on a dev machine it exits at once. It finds every
-git repository in the session and, for each:
+fires in single- and multi-repo sessions alike — once, at startup, not on
+resume, clear or compaction. Cloud only (`CLAUDE_CODE_REMOTE=true`); on a
+dev machine it exits at once. It finds the git repositories in the session
+(real `.git` directories, not nested inside another found repo), skips any
+whose origin owner is not trusted, and for each trusted one:
 
 - runs the repo's `.rig/setup.sh`, if any, with `RIG_HOME` exported;
-- if the repo has `.beads/`, installs `bd` and `dolt` and materialises the
-  beads store from `refs/dolt/data` over https.
+- if the repo has `.beads/`, installs pinned `bd` and `dolt` and
+  materialises the beads store from `refs/dolt/data` over https.
 
-It always exits 0, and reports per step.
+It works to a deadline inside its registered timeout, gives everything it
+runs `/dev/null` as stdin, prints one line per step (stdout becomes agent
+context) and sends tool output to `~/.local/state/curve-rig/`. It always
+exits 0.
 
 **Local sessions** use the plugin: the repo enables `rig@curvelogic` in its
 committed `.claude/settings.json`. Local provisioning stays with the developer
@@ -97,6 +105,28 @@ Nothing else is required; a repo with none of these is left alone.
 - **Write:** the relay (to come). A session stages its changes to an outbox
   in the working tree, they reach the default branch through an ordinary PR,
   and a workflow applies them and pushes `refs/dolt/data`.
+
+## Security model
+
+- **Root with credentials.** Cloud sessions run as root with GitHub access
+  to the session's repositories and whatever secrets the environment holds.
+  Everything rig runs has that power, so rig runs as little as possible.
+- **Trusted owners.** Only repositories whose `origin` is a github.com URL
+  under a trusted owner are provisioned. An agent cloning a third-party
+  repository cannot get its `.rig/setup.sh` run, now or at a later startup.
+- **Members are not isolated from each other.** One trusted member's
+  `.rig/setup.sh` can change PATH, `~/.local/bin` or `$RIG_HOME` for the
+  members provisioned after it. Trust is per owner, not per repository.
+- **Pinned downloads.** Every binary is an exact release asset checked
+  against a digest in `lib/pins.sh`; rig itself is fetched at a pinned
+  commit. A compromised upstream release or a push to rig's `main` does not
+  reach environments until a reviewed pin changes.
+- **The denylist secret** lives in a `denylist` environment restricted to
+  `main`. PRs are scanned by a `pull_request_target` workflow that runs the
+  base branch's scanner over the PR's commits as data; no PR code runs with
+  the secret. A common word on the list would be masked as `***` wherever
+  it appears in public logs, revealing it — keep entries distinctive.
+- **Review.** The owner merges every non-docs PR (see `REVIEW.md`).
 
 ## Naming
 
