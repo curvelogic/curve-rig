@@ -51,8 +51,9 @@ bin/rig-check
 Runs `bash -n` and shellcheck on every script, actionlint on the workflows,
 and validates every JSON file and the plugin/marketplace manifests. Without
 shellcheck or actionlint installed it skips them locally and fails in CI;
-`bin/rig-ci-tools` installs the pinned versions CI uses. CI runs the same; a separate workflow runs the denylist from the
-base branch (`.github/workflows/denylist.yml`).
+`bin/rig-ci-tools` installs the pinned versions CI uses. CI runs the same;
+a separate workflow runs the denylist from the base branch
+(`.github/workflows/denylist.yml`).
 
 ## Workflow
 
@@ -60,9 +61,11 @@ base branch (`.github/workflows/denylist.yml`).
 - The owner merges every PR except docs-only ones (see `REVIEW.md` for
   why). rig's reviewer agent (`rig-review`) reviews every PR and may merge
   docs-only ones.
-- Backlog: `docs/plan.md` for now. Beads arrives once the relay works —
-  initialising it needs a push to `refs/dolt/data`, which a web session
-  cannot make.
+- Roadmap: `docs/plan.md`, kept generic. Work items, including anything
+  that names a member, live in the owner's org-level tracker, not here.
+- rig has no beads store, and must not get one: the store lives on
+  `refs/dolt/data` in this repository, would be published with it, and is
+  not covered by the denylist scan or by squashing history.
 
 ## Shell conventions
 
