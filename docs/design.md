@@ -34,7 +34,7 @@ confirmed against the Claude Code documentation:
 7. **User-level `~/.claude` is honoured** in cloud sessions: skills placed in
    `~/.claude/skills` load.
 
-Still to verify in the pilot (see `plan.md`):
+Still to verify, with stand-ins, before going public (see `plan.md`):
 
 - That a **public** repository can be cloned anonymously during the setup
   phase (constraint 3 concerns credentials, not network).
