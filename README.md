@@ -13,8 +13,8 @@ deploy pipelines for the apps themselves live elsewhere.
 | Part | What it does |
 |---|---|
 | `bin/rig-install` | Installs rig into `~/.claude` — the user-level skills, agents and SessionStart hook. Run by a cloud environment's setup script. |
-| `hooks/session-start.sh` | Provisions every repo in the session: runs its `.rig/setup.sh`, installs `bd`/`dolt`, materialises the beads store. |
-| `lib/` | Shell functions repos can source from their own `.rig/setup.sh`. |
+| `hooks/session-start.sh` | Provisions every trusted repo in the session: runs its `.rig/setup.sh`, installs pinned `bd`/`dolt`, materialises the beads store. |
+| `lib/` | Shell functions repos can source from their own `.rig/setup.sh`; `lib/pins.sh` pins every download. |
 | `plugins/rig/` | The Claude Code plugin: skills and agents, for local sessions. |
 | `templates/` | Skeletons for a member repo's `CLAUDE.md` and `REVIEW.md`. |
 | `docs/design.md` | Why it is shaped like this — read before changing delivery. |
@@ -37,12 +37,20 @@ Full account: [`docs/design.md`](docs/design.md).
 
 ## Using rig in a cloud environment
 
-In the environment's setup script:
+In the environment's setup script, pinned to a reviewed commit, naming the
+GitHub owners whose repositories rig may provision:
 
 ```bash
-git clone --depth 1 https://github.com/curvelogic/curve-rig "$HOME/.local/share/curve-rig"
-"$HOME/.local/share/curve-rig/bin/rig-install"
+RIG_REF=<full commit SHA>
+RIG_HOME="$HOME/.local/share/curve-rig"
+git init -q "$RIG_HOME"
+git -C "$RIG_HOME" fetch -q --depth 1 https://github.com/curvelogic/curve-rig "$RIG_REF"
+git -C "$RIG_HOME" checkout -q FETCH_HEAD
+"$RIG_HOME/bin/rig-install" --trusted-owners acme
 ```
+
+Repositories owned by anyone else are never touched — including ones an
+agent clones during the session.
 
 ## Using rig locally
 
@@ -52,12 +60,15 @@ In the member repo's committed `.claude/settings.json`:
 {
   "extraKnownMarketplaces": {
     "curvelogic": {
-      "source": { "source": "github", "repo": "curvelogic/curve-rig", "ref": "<tag>" }
+      "source": { "source": "github", "repo": "curvelogic/curve-rig", "ref": "<release tag>" }
     }
   },
   "enabledPlugins": { "rig@curvelogic": true }
 }
 ```
+
+Pin a release tag only once tags are protected by a ruleset (no updates,
+no deletion); until then a tag can be moved under you.
 
 ## Making a repo a member
 

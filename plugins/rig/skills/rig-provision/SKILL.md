@@ -29,14 +29,14 @@ If rig is installed (`$RIG_HOME`, default `~/.local/share/curve-rig`):
 RIG_FORCE=1 "${RIG_HOME:-$HOME/.local/share/curve-rig}/hooks/session-start.sh"
 ```
 
-Otherwise clone it first (needs the repository attached to the session while
-it is private):
+It provisions only repositories whose origin owner is trusted (set at
+install time), and prints one line per step; details are in
+`~/.local/state/curve-rig/session-start.log`.
 
-```bash
-git clone --depth 1 https://github.com/curvelogic/curve-rig "$HOME/.local/share/curve-rig"
-"$HOME/.local/share/curve-rig/bin/rig-install"
-RIG_FORCE=1 "$HOME/.local/share/curve-rig/hooks/session-start.sh"
-```
+If rig is not installed, **ask the user** for the commit to install and the
+trusted owners rather than cloning a moving branch, then follow the README's
+"Using rig in a cloud environment" with those values, and run the hook as
+above.
 
 ## Never
 

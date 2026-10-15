@@ -1,50 +1,84 @@
 #!/usr/bin/env bash
-# bin/rig-denylist-check — fail if any private name appears in the tree or in
-# commit messages.
+# bin/rig-denylist-check — fail if any private name appears anywhere that
+# will be public: file contents and paths across all history, commit
+# metadata and messages, ref names, tag messages, and the PR branch name.
 #
-# The names come from the RIG_DENYLIST environment variable (one per line),
-# supplied in CI from a repository secret, so the list itself is never
-# committed. Matches are reported by location only — never by the matched
-# text — because CI logs of a public repository are public.
+# Usage: rig-denylist-check [REPO_DIR]     (default: this checkout)
 #
-# With RIG_DENYLIST unset or empty the check is skipped, with a notice.
+# Names come from RIG_DENYLIST (one per line), supplied in CI from an
+# environment secret, so the list is never committed. Matching is a
+# case-insensitive substring match. Matches are reported by kind and commit
+# only — never by matched text or path — because CI logs of a public
+# repository are public.
+#
+# The repository under scan is only ever read with git; nothing in it is
+# executed. CI runs this script from the base branch, never from the PR.
+#
+# With RIG_DENYLIST empty the check is skipped, unless RIG_DENYLIST_REQUIRED=1
+# (as in CI), when it fails.
 
 set -euo pipefail
 
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+target="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+g() { git -C "$target" -c core.quotepath=off "$@"; }
 
-if [ -z "${RIG_DENYLIST:-}" ]; then
+patterns="$(mktemp)"
+trap 'rm -f "$patterns"' EXIT
+# Strip CRs and surrounding whitespace; drop blank lines.
+printf '%s\n' "${RIG_DENYLIST:-}" | tr -d '\r' \
+    | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^$/d' > "$patterns"
+
+if [ ! -s "$patterns" ]; then
+    if [ "${RIG_DENYLIST_REQUIRED:-}" = 1 ]; then
+        echo "rig-denylist-check: RIG_DENYLIST is empty but required" >&2
+        exit 1
+    fi
     echo "rig-denylist-check: RIG_DENYLIST not set; skipped"
     exit 0
 fi
 
-patterns="$(mktemp)"
-trap 'rm -f "$patterns"' EXIT
-printf '%s\n' "$RIG_DENYLIST" | sed '/^[[:space:]]*$/d' > "$patterns"
+g rev-parse --git-dir >/dev/null
 
 status=0
+report() { echo "denylisted name: $*"; status=1; }
+# Match without `grep -q` in a pipeline (SIGPIPE under pipefail can lose a
+# match): read the whole input, discard the output.
+matches() { grep -a -i -F -f "$patterns" >/dev/null; }
 
-# Tracked files: report file:line only. grep exits 1 on no match, and xargs
-# turns that into 123, so collect output rather than trusting the status.
-hits="$(git ls-files -z | xargs -0 grep -I -n -i -w -F -f "$patterns" 2>/dev/null || true)"
-if [ -n "$hits" ]; then
-    printf '%s\n' "$hits" | cut -d: -f1,2 | sed 's/^/denylisted name at /'
-    status=1
-fi
+mapfile -t revs < <(g rev-list --all)
 
-# Commit messages reachable from HEAD: report the commit, not the text.
-while IFS= read -r sha; do
-    if git log -1 --format=%B "$sha" | grep -q -i -w -F -f "$patterns"; then
-        echo "denylisted name in message of commit $sha"
-        status=1
+# 1. File contents in every commit reachable from any ref.
+if [ "${#revs[@]}" -gt 0 ]; then
+    hits="$(printf '%s\n' "${revs[@]}" \
+        | xargs -r git -C "$target" grep -a -i -F -l -f "$patterns" 2>/dev/null || true)"
+    if [ -n "$hits" ]; then
+        while IFS= read -r c; do report "file content in commit $c"; done \
+            < <(cut -d: -f1 <<< "$hits" | sort -u)
     fi
-done < <(git rev-parse --verify -q HEAD >/dev/null && git rev-list HEAD)
-
-if [ -n "${GITHUB_HEAD_REF:-}" ] \
-        && printf '%s\n' "$GITHUB_HEAD_REF" | grep -q -i -F -f "$patterns"; then
-    echo "denylisted name in the branch name"
-    status=1
 fi
 
-[ "$status" -eq 0 ] && echo "rig-denylist-check: ok"
+# 2. File paths anywhere in history (including merges).
+paths="$(g log --all -m --format= --name-only -z | tr '\0' '\n')"
+if matches <<< "$paths"; then
+    report "$(grep -a -i -c -F -f "$patterns" <<< "$paths") file path(s) in history"
+fi
+
+# 3. Author and committer names and emails, and messages, of every commit.
+for c in "${revs[@]}"; do
+    meta="$(g log -1 --format='%an%n%ae%n%cn%n%ce%n%B' "$c")"
+    if matches <<< "$meta"; then report "author, committer or message of commit $c"; fi
+done
+
+# 4. Ref names (branches, tags, remotes) and tag messages.
+refs="$(g for-each-ref --format='%(refname)')"
+if matches <<< "$refs"; then report "a ref name"; fi
+tags="$(g for-each-ref refs/tags --format='%(taggername)%0a%(taggeremail)%0a%(contents)')"
+if matches <<< "$tags"; then report "a tag's tagger or message"; fi
+
+# 5. The PR's branch name, passed in by CI.
+if [ -n "${RIG_PR_BRANCH:-}" ] && matches <<< "$RIG_PR_BRANCH"; then
+    report "the branch name"
+fi
+
+[ "$status" -eq 0 ] && echo "rig-denylist-check: ok (${#revs[@]} commits)"
 exit "$status"
