@@ -27,6 +27,7 @@ necessary, not sufficient.
 bin/rig-install           stage 1: install into ~/.claude (setup script)
 bin/rig-check             the check command — run before every commit
 bin/rig-denylist-check    CI-only private-name check
+bin/rig-ci-tools          install the pinned linters rig-check runs
 bin/rig-hook-test         prove the hook fires, in a headless session
 bin/rig-relay             beads relay: stage (session), bootstrap/apply (CI)
 hooks/session-start.sh    stage 2: provision trusted repos in the session
@@ -47,9 +48,10 @@ docs/                     design and plan
 bin/rig-check
 ```
 
-Runs `bash -n` and shellcheck on every script, actionlint on the workflows
-(when installed), and validates every JSON file and the plugin/marketplace
-manifests. CI runs the same; a separate workflow runs the denylist from the
+Runs `bash -n` and shellcheck on every script, actionlint on the workflows,
+and validates every JSON file and the plugin/marketplace manifests. Without
+shellcheck or actionlint installed it skips them locally and fails in CI;
+`bin/rig-ci-tools` installs the pinned versions CI uses. CI runs the same; a separate workflow runs the denylist from the
 base branch (`.github/workflows/denylist.yml`).
 
 ## Workflow

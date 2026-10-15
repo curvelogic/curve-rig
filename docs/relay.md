@@ -77,7 +77,7 @@ rig-relay stage        →    .beads/inbox/<t>-<l>.jsonl
    member and rig (at a pinned commit), installs rig's pinned bd and dolt,
    and bootstraps a fresh store from `refs/dolt/data`.
 5. **It applies the inbox.** The staleness gate refuses the run if the
-   tracker has changed any staged issue since it was staged (see
+   tracker has updated any staged issue since it was staged (see
    *Applying*); otherwise each file is imported, in time order, and the
    store is pushed back to `refs/dolt/data`.
 6. **It clears what it applied.** It removes the applied files from the
@@ -106,10 +106,16 @@ store's stale values.
 Rows are compared by content, not by row identity: bd's schema migrations
 rewrite every row of a table or re-key comments, and a raw `dolt_diff` would
 report the whole tracker as changed. An issue is staged when its own row's
-`updated_at` moved, or when one of its comments, labels or dependencies was
-added or removed (those export inside its record). A memory is staged when
-its value changed. Deleted issues and forgotten memories cannot be carried;
-the command warns about them.
+`updated_at` moved, or when it gained a comment, label or dependency (those
+export inside its record). A memory is staged when it is new or its value
+changed.
+
+**Only additions and updates are carried.** `bd import` merges a record's
+labels, dependencies and comments into what the store holds rather than
+replacing them, and cannot delete. So a removed label or dependency, a
+removed or edited comment, a deleted issue and a forgotten memory are not
+relayed; `stage` names each one it finds, and they have to be made from
+somewhere that can push the store.
 
 The staged file is the matching records from `bd export --all`, one per
 line. A store without an `origin` Dolt remote is refused: it was hydrated
@@ -122,12 +128,23 @@ from an export rather than bootstrapped, and its rows are not the tracker's.
 1. **Gates on staleness.** `bd import` is an upsert, so a record older than
    the store would silently reinstate old values. If any issue's
    `updated_at` in the store is newer than in the delta, the whole run is
-   refused, naming the issues, and nothing is imported. Memories carry no
-   timestamp and are not gated.
+   refused, naming the issues, and nothing is imported. The gate sees only
+   what moves `updated_at`: an issue's fields and status, not its labels or
+   comments. Those merge rather than overwrite, so nothing is lost by it.
+   Memories carry no timestamp and are not gated.
 2. Imports each file in name (time) order. Re-importing an applied file is
    a no-op.
 3. Pushes `refs/dolt/data`, with the tracked `.beads/config.yaml` pointed
    at https for the push and restored afterwards.
+
+Every step has a timeout, and the job a 30-minute limit, so a hang cannot
+hold the relay's one-at-a-time slot for long.
+
+**What runs with write access.** The job's token can push to the member, and
+is set in git's global config so that bd's own git calls can use it. bd reads
+the member's `.beads/` configuration. Both come from the reviewed default
+branch, but anything bd ever executes from `.beads/` would run with that
+token — a reason to review `.beads/` changes like code.
 
 The workflow then resets to the branch tip and removes only the files it
 applied, so the clearing commit carries nothing bd changed in the tree and
@@ -142,18 +159,23 @@ migration, so every clone then needs a bd at least that new. Bump the pin in
 ## When it is stuck
 
 - **Refused as stale.** Someone changed an issue after the delta was staged.
-  Remove the file from the inbox in a PR, re-bootstrap a session's store,
-  redo the writes and stage again.
+  A refusal stops the whole inbox: every delta queued behind it waits too.
+  Remove the stale file from the inbox in a PR, re-bootstrap a session's
+  store, redo the writes and stage again.
 - **Inbox not cleared** (branch protection refused the workflow's push). The
-  deltas stay queued; the next run's gate refuses them once the store has
-  moved on. Remove the applied files by hand in a PR. Branch protection
-  must let `GITHUB_TOKEN` push to the default branch for clearing to work.
+  deltas stay queued and the next run imports them again, which is
+  harmless until a later change touches one of their issues; from then the
+  gate refuses the whole inbox. Remove the applied files by hand in a PR.
+  Branch protection must let `GITHUB_TOKEN` push to the default branch for
+  clearing to work.
 - **A merge resurrected an applied file** on a long-lived branch. See the
   skill's "After merging main".
 
 ## Adopting it in a member
 
-1. Add a workflow, pinned to a reviewed commit of rig (both SHAs the same):
+1. Add a workflow, pinned to a reviewed commit of rig. Both SHAs must be the
+   same: the first chooses the workflow, the second the scripts it runs, and
+   nothing checks that they agree.
 
    ```yaml
    name: beads relay

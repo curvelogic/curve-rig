@@ -42,13 +42,17 @@ permissions:
 
 jobs:
   relay:
-    if: github.ref_name == github.event.repository.default_branch
+    # The full ref, not ref_name: a tag named after the default branch would
+    # pass a name check and apply an unreviewed commit.
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
-    # Each run branches from the current refs/dolt/data tip, so a second
-    # concurrent push would be rejected. Queue rather than cancel: a
-    # cancelled run is a delta left unapplied.
+    # One run at a time: each branches from the current refs/dolt/data tip,
+    # so a concurrent push would be rejected. A newer queued run replaces an
+    # older pending one, which loses nothing: its checkout holds every delta
+    # merged before it.
     concurrency:
       group: beads-relay-${{ github.repository }}
       cancel-in-progress: false
@@ -121,15 +125,17 @@ jobs:
       # Reset to the branch tip first, so the commit carries only the
       # removal of the deltas this run applied — not anything bd changed in
       # the tree, and not a delta that was merged while this run worked.
-      # If the push is refused, the deltas stay queued and the next run's
-      # staleness gate refuses rather than reapplies them: visibly stuck.
+      # If the push is refused, the deltas stay queued. The next run imports
+      # them again, which is harmless while the tracker has not moved; once
+      # a later change touches one of their issues, the gate refuses the
+      # whole inbox until they are removed by hand.
       - name: Clear the applied deltas
         if: steps.inbox.outputs.has_deltas == 'true'
         working-directory: member
         env:
           APPLIED: ${{ runner.temp }}/applied
         run: |
-          git fetch -q origin "$BRANCH"
+          git fetch -q origin "refs/heads/$BRANCH"
           git reset -q --hard FETCH_HEAD
           while IFS= read -r f; do
             git rm -q --ignore-unmatch -- "$f"

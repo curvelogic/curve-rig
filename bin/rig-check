@@ -7,6 +7,12 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 status=0
 fail() { printf 'FAIL: %s\n' "$*" >&2; status=1; }
+# A linter that is not installed is skipped locally, but fails CI, which
+# installs pinned versions (bin/rig-ci-tools).
+missing() {
+    if [ "${CI:-}" = true ]; then fail "$1 not installed"
+    else echo "note: $1 not installed; skipped (bin/rig-ci-tools installs it)" >&2; fi
+}
 
 # Shell: every tracked script, by shebang or extension.
 mapfile -t scripts < <(
@@ -23,14 +29,14 @@ done
 if command -v shellcheck >/dev/null 2>&1; then
     shellcheck -x "${scripts[@]}" || fail "shellcheck"
 else
-    echo "note: shellcheck not installed; skipped" >&2
+    missing shellcheck
 fi
 
 # Workflows.
 if command -v actionlint >/dev/null 2>&1; then
     actionlint || fail "actionlint"
 else
-    echo "note: actionlint not installed; skipped" >&2
+    missing actionlint
 fi
 
 # JSON: every tracked file parses.

@@ -1,6 +1,6 @@
 ---
 name: rig-relay
-description: Save this cloud session's beads changes (bd create, update, close, comments, labels, dependencies, remember) so they reach the tracker. Use before ending any cloud session that ran a bd write, or when asked to relay, sync or push beads from a web session.
+description: Save this cloud session's beads changes (bd create, update, close, new comments, labels and dependencies, remember) so they reach the tracker. Use before ending any cloud session that ran a bd write, or when asked to relay, sync or push beads from a web session.
 ---
 
 # Relaying beads changes from a cloud session
@@ -29,8 +29,9 @@ Then push and open a PR as usual — on its own, or as the last commit of the
 session's final PR. On merge the workflow applies it.
 
 - Stage **once**, after the last write. A staged file is a point-in-time
-  export: writes after it are not in it, and a second file touching the same
-  issues is refused by the next one's staleness check.
+  export: writes after it are not in it. Staging again writes a second file
+  with the latest values; that is harmless, but if anyone changes those
+  issues in between, the older file is refused and holds up the inbox.
 - "No beads changes to relay" means the store matches the tracker; nothing to
   commit.
 - It refuses a store with no `origin` Dolt remote: that store was not
@@ -39,7 +40,10 @@ session's final PR. On merge the workflow applies it.
 
 ## Limits
 
-- Deleted issues and forgotten memories are not carried; the command warns.
+- Only additions and updates are carried. Removed labels and dependencies,
+  removed or edited comments, deleted issues and forgotten memories are
+  not: `stage` names each one. Tell the user which, so they can be made
+  from a session that can push the store.
 - Memories are applied without a staleness check: the latest relay wins.
 - If the repository has no `beads relay` workflow, staged files sit in the
   inbox unapplied. Tell the user rather than leaving it silent.

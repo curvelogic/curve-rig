@@ -40,52 +40,57 @@ _rig_relay_label() {
     printf '%s\n' "${l:-session}"
 }
 
-# Issue ids whose exported record differs between commit BASE and the
-# working set, and memory keys likewise, printed as "issue <id>" and
-# "memory <key>" lines. Rows are compared by content, not by row identity:
-# bd's schema migrations rewrite every row of a table, or re-key comments,
-# so a plain dolt_diff would report the whole tracker as changed. An issue's
-# own row counts as changed when its updated_at moved (every bd write to an
-# issue bumps it); its comments, labels and dependencies, which export
-# inside its record, count when one was added or removed.
+# What changed between commit BASE and the working set, as tab-separated
+# "<kind>\t<id or key>" lines. Rows are compared by content, not by row
+# identity: bd's schema migrations rewrite every row of a table, or re-key
+# comments, so a plain dolt_diff would report the whole tracker as changed.
+#
+#   issue        the issue's own row changed (every bd write to an issue
+#                bumps updated_at), or it gained a comment, label or
+#                dependency (those export inside its record)
+#   memory       a memory was added or its value changed
+#   lost-*       a change the relay cannot carry: bd import merges a
+#                record's labels, dependencies and comments rather than
+#                replacing them, and cannot delete issues or memories
 _rig_relay_changes() {
     local doltdir="$1" b="$2"
-    ( cd "$doltdir" && dolt sql -r csv -q "
-select 'issue', w.id from issues w
+    ( cd "$doltdir" && dolt sql -r json -q "
+select 'issue' as kind, w.id as k from issues w
  where not exists (select 1 from issues as of '$b' o
                     where o.id = w.id and o.updated_at <=> w.updated_at)
 union select 'issue', w.issue_id from comments w
  where not exists (select 1 from comments as of '$b' o
                     where o.issue_id = w.issue_id and o.text <=> w.text
                       and o.created_at <=> w.created_at)
-union select 'issue', o.issue_id from comments as of '$b' o
- where not exists (select 1 from comments w
-                    where o.issue_id = w.issue_id and o.text <=> w.text
-                      and o.created_at <=> w.created_at)
 union select 'issue', w.issue_id from dependencies w
  where not exists (select 1 from dependencies as of '$b' o
-                    where o.issue_id = w.issue_id and o.type <=> w.type
-                      and o.depends_on_issue_id <=> w.depends_on_issue_id)
-union select 'issue', o.issue_id from dependencies as of '$b' o
- where not exists (select 1 from dependencies w
                     where o.issue_id = w.issue_id and o.type <=> w.type
                       and o.depends_on_issue_id <=> w.depends_on_issue_id)
 union select 'issue', w.issue_id from labels w
  where not exists (select 1 from labels as of '$b' o
                     where o.issue_id = w.issue_id and o.label = w.label)
-union select 'issue', o.issue_id from labels as of '$b' o
- where not exists (select 1 from labels w
-                    where o.issue_id = w.issue_id and o.label = w.label)
 union select 'memory', substring(w.\`key\`, 11) from config w
  where w.\`key\` like 'kv.memory.%'
    and not exists (select 1 from config as of '$b' o
                     where o.\`key\` = w.\`key\` and o.value <=> w.value)
-union select 'gone-issue', o.id from issues as of '$b' o
+union select 'lost-comment', o.issue_id from comments as of '$b' o
+ where not exists (select 1 from comments w
+                    where o.issue_id = w.issue_id and o.text <=> w.text
+                      and o.created_at <=> w.created_at)
+union select 'lost-dependency', concat(o.issue_id, ' -> ', o.depends_on_issue_id)
+  from dependencies as of '$b' o
+ where not exists (select 1 from dependencies w
+                    where o.issue_id = w.issue_id and o.type <=> w.type
+                      and o.depends_on_issue_id <=> w.depends_on_issue_id)
+union select 'lost-label', concat(o.issue_id, ' ', o.label) from labels as of '$b' o
+ where not exists (select 1 from labels w
+                    where o.issue_id = w.issue_id and o.label = w.label)
+union select 'lost-issue', o.id from issues as of '$b' o
  where not exists (select 1 from issues w where w.id = o.id)
-union select 'gone-memory', substring(o.\`key\`, 11) from config as of '$b' o
+union select 'lost-memory', substring(o.\`key\`, 11) from config as of '$b' o
  where o.\`key\` like 'kv.memory.%'
    and not exists (select 1 from config w where w.\`key\` = o.\`key\`)
-" </dev/null ) | tail -n +2 | sed '/^$/d' | tr ',' ' ' | sort -u
+" </dev/null ) | jq -r '.rows[]? | [.kind, .k] | @tsv' | LC_ALL=C sort -u
 }
 
 # Stage this session's beads changes in REPO as one JSONL file under
@@ -123,21 +128,27 @@ rig_relay_stage() {
 
     changes="$(_rig_relay_changes "$doltdir" "$base")" || {
         rig_warn "could not compute the store's changes"; return 1; }
-    while read -r kind key; do
+    local kind key lost=0
+    while IFS=$'\t' read -r kind key; do
         case "$kind" in
-            gone-issue)  rig_warn "issue $key was deleted locally; the relay cannot carry deletions" ;;
-            gone-memory) rig_warn "memory $key was forgotten locally; the relay cannot carry deletions" ;;
+            lost-issue)      rig_warn "not carried: issue $key was deleted"; lost=1 ;;
+            lost-memory)     rig_warn "not carried: memory $key was forgotten"; lost=1 ;;
+            lost-label)      rig_warn "not carried: label removed ($key)"; lost=1 ;;
+            lost-dependency) rig_warn "not carried: dependency removed ($key)"; lost=1 ;;
+            lost-comment)    rig_warn "not carried: a comment on $key was removed or edited"; lost=1 ;;
         esac
     done <<< "$changes"
-    ids="$(sed -n 's/^issue //p' <<< "$changes")"
-    mems="$(sed -n 's/^memory //p' <<< "$changes")"
+    [ "$lost" -eq 0 ] || rig_warn "the relay merges records and cannot remove;" \
+        "make the changes above from a session that can push the store."
+    ids="$(sed -n 's/^issue\t//p' <<< "$changes")"
+    mems="$(sed -n 's/^memory\t//p' <<< "$changes")"
     if [ -z "$ids" ] && [ -z "$mems" ]; then
         echo "No beads changes to relay."
         return 0
     fi
 
     tmp="$(mktemp)"
-    if ! ( cd "$repo" && bd export --all -o "$tmp" </dev/null >/dev/null 2>&1 ); then
+    if ! ( cd "$repo" && timeout 120 bd export --all -o "$tmp" </dev/null >/dev/null 2>&1 ); then
         rm -f "$tmp"; rig_warn "bd export failed"; return 1
     fi
     stamp="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -185,7 +196,7 @@ rig_relay_gate() {
     local repo="$1"; shift
     local store out
     store="$(mktemp)"
-    if ! ( cd "$repo" && bd export --all -o "$store" </dev/null >/dev/null 2>&1 ); then
+    if ! ( cd "$repo" && timeout 120 bd export --all -o "$store" </dev/null >/dev/null 2>&1 ); then
         rm -f "$store"; rig_warn "bd export failed"; return 1
     fi
     if ! out="$(jq -n -r --slurpfile store "$store" '
@@ -231,15 +242,16 @@ rig_relay_apply() {
     ( cd "$repo" && rig_relay_gate "$repo" "${deltas[@]}" ) || return 1
     for d in "${deltas[@]}"; do
         echo "Importing $d"
-        ( cd "$repo" && bd import "$d" </dev/null ) || { rig_warn "bd import failed on $d"; return 1; }
+        ( cd "$repo" && timeout 300 bd import "$d" </dev/null ) || {
+            rig_warn "bd import failed on $d"; return 1; }
     done
     # bd may already have committed each write; nothing to commit is fine.
-    ( cd "$repo" && bd dolt commit -m "beads relay: apply ${#deltas[@]} delta(s)" </dev/null ) || true
+    ( cd "$repo" && timeout 120 bd dolt commit -m "beads relay: apply ${#deltas[@]} delta(s)" </dev/null ) || true
     if [ "${RIG_RELAY_NO_PUSH:-}" = 1 ]; then
         echo "RIG_RELAY_NO_PUSH=1: not pushing."
     else
         rig_beads_config_https "$repo"
-        ( cd "$repo" && bd dolt push </dev/null ) || {
+        ( cd "$repo" && timeout 600 bd dolt push </dev/null ) || {
             rig_restore_all; rig_warn "bd dolt push failed"; return 1; }
         rig_restore_all
     fi

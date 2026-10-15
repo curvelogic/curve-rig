@@ -49,7 +49,15 @@ dir="$(mktemp -d)/review-<number>"
 git worktree add --detach "$dir" refs/review/pr-<number>
 ```
 
-Remove the worktree and the `refs/review/` ref when you finish. Use `gh` if it is available, or the
+If the session has a scratch directory, put the worktree there instead of
+`mktemp -d`. When you finish, `git worktree remove --force "$dir"`, delete
+the `refs/review/` ref, and `git worktree prune`.
+
+**Exercising code that writes elsewhere.** Never let a review write to a
+shared remote, a deployment or a tracker. Run such code against copies
+whose remotes point nowhere, with any tool's sandbox or dry-run mode on
+(bd: `--sandbox`; it otherwise pushes on its own). If you cannot isolate
+it, do not run it: say so, and review it by reading. Use `gh` if it is available, or the
 GitHub tools the session provides, for PR metadata, checks and comments.
 
 ## Gates — every one, in order
@@ -65,9 +73,16 @@ review a held PR; you do not merge it.
 ### 2. CI
 
 Read the checks on the PR's **current head**. Never merge on a failing or
-pending check, and never on checks from an older head. Still running:
-wait. Failing: stop and send back with the failing check named. Checks
-skipped by a path filter are fine.
+pending check, and never on checks from an older head. Checks skipped by a
+path filter are fine.
+
+- **Failing**: the verdict is send-back, but carry on through the other
+  gates, so the author gets every finding in one round. Name the failing
+  check first.
+- **Still running**: carry on with the other gates and read the checks
+  again at the end. If they are still running then, re-check every few
+  minutes for up to 30 minutes if you have a way to wait; otherwise report
+  your findings with CI as pending, and do not merge.
 
 ### 3. Adversarial read
 
@@ -78,7 +93,9 @@ own criteria:
 - **Correctness**: does it do what it says? Edge cases, error paths,
   concurrency, partial failure, re-running.
 - **Tests**: does a test exercise each behaviour the PR claims? Could each
-  one fail?
+  one fail? Where the repository has no test suite for the code, the PR
+  must say how each claimed behaviour was exercised, and you repeat what
+  you safely can; a claim nobody exercised is a finding.
 - **Security**: secrets in code, fixtures or logs; untrusted input reaching
   a shell, a query or a path; new permissions; new network hosts; anything
   downloaded without a pinned version and digest.
@@ -152,6 +169,12 @@ Only on a pass, with no hold, no owner rule and no missing second review:
   <reviewed head> origin/<default branch> -- <every path the PR touched>`
   is empty. A merge reported as done is not evidence.
 - Run any post-merge check `REVIEW.md` names, and report its result.
+
+## Before reporting
+
+Read the PR's head again. If it moved while you worked, review what was
+added (and re-run the check), or say plainly which head your verdict
+covers. Never merge a head you have not reviewed.
 
 ## Second, independent review
 
