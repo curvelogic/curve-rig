@@ -26,12 +26,15 @@ once the relay works (step 4).
    line. Until it exists the denylist check is skipped.
 2. **Branch protection on `main`**: require the CI check; turn on automatic
    deletion of merged branches.
-3. **Prove the hook fires.** In a cloud session, run `bin/rig-install`,
-   then start a *new* session in the same environment and confirm the
-   user-level SessionStart hook ran (stores present without running
-   anything). Note: bd ≥ 1.3 appends patterns to a member's tracked
-   `.beads/.gitignore` on bootstrap; rig restores the file, but members
-   should commit those additions so the tree stays clean under plain `bd`.
+3. **Prove the hook fires.** Each cloud session is a fresh container, so an
+   install from one session does not carry to the next, and a private rig
+   cannot be cloned by the setup script (design.md, constraint 3). Before
+   going public, test inside one session: run `bin/rig-install`, then start a
+   headless `claude -p` in the same container and confirm the user-level
+   SessionStart hook ran for it. The full path (setup script → hook) is proved
+   at step 9. Note: bd ≥ 1.3 appends patterns to a member's tracked
+   `.beads/.gitignore` on bootstrap; rig restores the file, but members should
+   commit those additions so the tree stays clean under plain `bd`.
 4. **Beads relay.** A script that stages a session's beads changes to an
    outbox in the member's working tree (`.beads/inbox/`), and a reusable
    workflow (`workflow_call`) that, on merge to the default branch, imports
