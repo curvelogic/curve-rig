@@ -63,7 +63,7 @@ printf -- '--- SessionStart hook output\n%s\n' "${hook:-(none)}"
 printf -- '--- rig skills loaded\n%s\n' "${skills:-(none)}"
 printf -- '--- rig agents loaded\n%s\n' "${agents:-(none)}"
 printf -- '--- hook log\n'
-cat "$XDG_STATE_HOME/curve-rig/session-start.log" 2>/dev/null | tail -n 20 || true
+tail -n 20 "$XDG_STATE_HOME/curve-rig/session-start.log" 2>/dev/null || true
 
 status=0
 jq -s -e 'any(.[]; .type == "system" and .subtype == "hook_response"
