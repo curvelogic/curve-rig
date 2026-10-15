@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# bin/rig-denylist-check — fail if any private name appears in the tree or in
+# commit messages.
+#
+# The names come from the RIG_DENYLIST environment variable (one per line),
+# supplied in CI from a repository secret, so the list itself is never
+# committed. Matches are reported by location only — never by the matched
+# text — because CI logs of a public repository are public.
+#
+# With RIG_DENYLIST unset or empty the check is skipped, with a notice.
+
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+if [ -z "${RIG_DENYLIST:-}" ]; then
+    echo "rig-denylist-check: RIG_DENYLIST not set; skipped"
+    exit 0
+fi
+
+patterns="$(mktemp)"
+trap 'rm -f "$patterns"' EXIT
+printf '%s\n' "$RIG_DENYLIST" | sed '/^[[:space:]]*$/d' > "$patterns"
+
+status=0
+
+# Tracked files: report file:line only. grep exits 1 on no match, and xargs
+# turns that into 123, so collect output rather than trusting the status.
+hits="$(git ls-files -z | xargs -0 grep -I -n -i -w -F -f "$patterns" 2>/dev/null || true)"
+if [ -n "$hits" ]; then
+    printf '%s\n' "$hits" | cut -d: -f1,2 | sed 's/^/denylisted name at /'
+    status=1
+fi
+
+# Commit messages reachable from HEAD: report the commit, not the text.
+while IFS= read -r sha; do
+    if git log -1 --format=%B "$sha" | grep -q -i -w -F -f "$patterns"; then
+        echo "denylisted name in message of commit $sha"
+        status=1
+    fi
+done < <(git rev-parse --verify -q HEAD >/dev/null && git rev-list HEAD)
+
+if [ -n "${GITHUB_HEAD_REF:-}" ] \
+        && printf '%s\n' "$GITHUB_HEAD_REF" | grep -q -i -F -f "$patterns"; then
+    echo "denylisted name in the branch name"
+    status=1
+fi
+
+[ "$status" -eq 0 ] && echo "rig-denylist-check: ok"
+exit "$status"

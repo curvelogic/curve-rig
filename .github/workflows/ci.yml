@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Check
+        run: bin/rig-check
+      - name: Private-name check
+        env:
+          RIG_DENYLIST: ${{ secrets.RIG_DENYLIST }}
+        run: bin/rig-denylist-check

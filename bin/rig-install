@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# bin/rig-install — stage 1: install rig into the user's ~/.claude.
+#
+# Run from a cloud environment's setup script (see README), or by hand. It:
+#   - links the plugin's skills and agents into ~/.claude/{skills,agents};
+#   - registers hooks/session-start.sh as a user-level SessionStart hook in
+#     ~/.claude/settings.json, merging with whatever is there.
+# Idempotent: re-running replaces rig's own entries and nothing else.
+#
+# RIG_HOME defaults to the checkout this script lives in.
+
+set -euo pipefail
+
+RIG_HOME="${RIG_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+PLUGIN="$RIG_HOME/plugins/rig"
+HOOK="$RIG_HOME/hooks/session-start.sh"
+
+# shellcheck source=../lib/common.sh
+. "$RIG_HOME/lib/common.sh"
+
+command -v jq >/dev/null 2>&1 || { rig_warn "jq is required"; exit 1; }
+
+mkdir -p "$CLAUDE_DIR/skills" "$CLAUDE_DIR/agents"
+
+# Skills: one directory each. Names carry a rig- prefix (see docs/design.md).
+for dir in "$PLUGIN"/skills/*/; do
+    [ -d "$dir" ] || continue
+    ln -sfn "${dir%/}" "$CLAUDE_DIR/skills/$(basename "$dir")"
+done
+
+# Agents: one file each.
+for file in "$PLUGIN"/agents/*.md; do
+    [ -f "$file" ] || continue
+    ln -sf "$file" "$CLAUDE_DIR/agents/$(basename "$file")"
+done
+
+# User-level SessionStart hook. Drop any previous rig entry (matched by the
+# hook path), then append the current one.
+settings="$CLAUDE_DIR/settings.json"
+[ -s "$settings" ] || echo '{}' > "$settings"
+tmp="$(mktemp)"
+jq --arg cmd "$HOOK" '
+    .hooks.SessionStart = (
+        [ (.hooks.SessionStart // [])[]
+          | select([.hooks[]?.command] | index($cmd) | not) ]
+        + [ { hooks: [ { type: "command", command: $cmd, timeout: 900 } ] } ]
+    )
+' "$settings" > "$tmp"
+mv "$tmp" "$settings"
+
+rig_log "installed from $RIG_HOME into $CLAUDE_DIR"

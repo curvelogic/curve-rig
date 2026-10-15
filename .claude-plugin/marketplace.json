@@ -1,0 +1,13 @@
+{
+  "name": "curvelogic",
+  "owner": {
+    "name": "Curve Logic"
+  },
+  "plugins": [
+    {
+      "name": "rig",
+      "source": "./plugins/rig",
+      "description": "Shared agent scaffolding: provisioning, beads relay, common reviewer."
+    }
+  ]
+}

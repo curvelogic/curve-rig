@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# bin/rig-check — the check command. Run before every commit; CI runs it too.
+
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+status=0
+fail() { printf 'FAIL: %s\n' "$*" >&2; status=1; }
+
+# Shell: every tracked script, by shebang or extension.
+mapfile -t scripts < <(
+    git ls-files | while IFS= read -r f; do
+        case "$f" in
+            *.sh) echo "$f" ;;
+            *) head -c 64 "$f" 2>/dev/null | grep -q '^#!/usr/bin/env bash' && echo "$f" ;;
+        esac
+    done
+)
+for f in "${scripts[@]}"; do
+    bash -n "$f" || fail "syntax: $f"
+done
+if command -v shellcheck >/dev/null 2>&1; then
+    shellcheck -x "${scripts[@]}" || fail "shellcheck"
+else
+    echo "note: shellcheck not installed; skipped" >&2
+fi
+
+# JSON: every tracked file parses.
+while IFS= read -r f; do
+    jq empty "$f" 2>/dev/null || fail "invalid JSON: $f"
+done < <(git ls-files '*.json')
+
+# Manifests: every marketplace entry points at a plugin whose name matches.
+market=.claude-plugin/marketplace.json
+while IFS=$'\t' read -r name source; do
+    manifest="$source/.claude-plugin/plugin.json"
+    if [ ! -f "$manifest" ]; then
+        fail "marketplace entry '$name': no $manifest"
+    elif [ "$(jq -r .name "$manifest")" != "$name" ]; then
+        fail "marketplace entry '$name': $manifest names '$(jq -r .name "$manifest")'"
+    fi
+done < <(jq -r '.plugins[] | [.name, .source] | @tsv' "$market")
+
+[ "$status" -eq 0 ] && echo "rig-check: ok"
+exit "$status"
