@@ -34,12 +34,17 @@ confirmed against the Claude Code documentation:
 7. **User-level `~/.claude` is honoured** in cloud sessions: skills placed in
    `~/.claude/skills` load.
 
-Still to verify, with stand-ins, before going public (see `plan.md`):
+8. **The setup script can clone a public repository anonymously.**
+   Constraint 3 concerns credentials, not the network: `git clone` of a
+   public github.com repository works during setup.
+9. **A user-level SessionStart hook written by the setup script fires.**
+   `~/.claude/settings.json` written during setup survives the session's
+   launch, and its `startup` hook runs once the session starts — in a
+   multi-repo session too, where no repository's own hooks run.
 
-- That a **public** repository can be cloned anonymously during the setup
-  phase (constraint 3 concerns credentials, not network).
-- That a SessionStart hook added to `~/.claude/settings.json` during the
-  setup phase fires, and is not overwritten when the session launches.
+Constraints 8 and 9 were checked with a stand-in public repository and a
+trivial hook; rig's own setup-script path is proved once it is public
+(see `plan.md`).
 
 ## Delivery: two stages
 

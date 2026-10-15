@@ -20,8 +20,8 @@ org-level tracker. rig has no beads store of its own (see `CLAUDE.md`).
   `claude -p`, whose user-level SessionStart hook fires and whose rig skills
   load. With the real owner trusted it installed bd and dolt and
   bootstrapped a member's store in under half a minute, leaving trees clean.
-  Not yet proven: the hook surviving from an environment setup script into
-  a fresh session (step 1). bd ≥ 1.3 appends patterns to a member's tracked
+  The setup-script path is proven with a stand-in (`design.md`,
+  constraints 8 and 9); rig's own is proven once it is public (step 5). bd ≥ 1.3 appends patterns to a member's tracked
   `.beads/.gitignore` on bootstrap; rig restores the file, but members should
   commit those additions so the tree stays clean under plain `bd`.
 - Beads relay (`docs/relay.md`): `rig-relay stage` in a session, and a
@@ -50,23 +50,7 @@ org-level tracker. rig has no beads store of its own (see `CLAUDE.md`).
 
 ## Next
 
-1. **Owner: answer the open questions in `design.md`** with stand-ins, so
-   the post-public delivery path is known to work before the irreversible
-   step. In a throwaway cloud environment (the snippet replaces its
-   `~/.claude/settings.json`), set the setup script to:
-
-   ```bash
-   git clone --depth 1 https://github.com/<any public repo> ~/clone-test \
-       && echo cloned > ~/clone-test.ok
-   mkdir -p ~/.claude
-   printf '%s\n' '{"hooks":{"SessionStart":[{"matcher":"startup","hooks":[{"type":"command","command":"echo SETUP-HOOK-FIRED; cat ~/clone-test.ok"}]}]}}' \
-       > ~/.claude/settings.json
-   ```
-
-   Then start a session there and ask it whether `SETUP-HOOK-FIRED` and
-   `cloned` appear in its context. Both mean the plan below holds; either
-   missing means delivery needs rethinking first.
-2. **Pilot on one private member**: add `.rig/setup.sh`, adopt the
+1. **Pilot on one private member**: add `.rig/setup.sh`, adopt the
    templates and the relay workflow, enable the plugin for local sessions,
    and have `rig-review` review and merge its PRs in place of its own
    reviewer. Prove the relay end to end: a session stages, the PR merges,
@@ -74,13 +58,13 @@ org-level tracker. rig has no beads store of its own (see `CLAUDE.md`).
    private, install it by hand in the session (the `rig-provision` skill)
    rather than from the setup script, and give the relay workflow its
    private-rig access (`docs/relay.md` → *Adopting it*).
-3. **Second member**, replacing its own copies of setup, relay and reviewer.
-4. **Second independent security review** of everything since the first
+2. **Second member**, replacing its own copies of setup, relay and reviewer.
+3. **Second independent security review** of everything since the first
    one, with the findings fixed.
-5. **Go public**: squash history to a single commit (removes session links
+4. **Go public**: squash history to a single commit (removes session links
    and stale branches), confirm the denylist scan is clean, make the
    repository public, and tag a release.
-6. **Prove hands-off delivery**: point a fresh cloud environment's setup
+5. **Prove hands-off delivery**: point a fresh cloud environment's setup
    script at the release with `--trusted-owners` (README → *Using rig in a
    cloud environment*), start a session, and confirm the hook provisioned
    every member with nothing run by hand. Then move the other environments
