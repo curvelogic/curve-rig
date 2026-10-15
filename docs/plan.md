@@ -20,7 +20,7 @@ once rig has a store of its own (step 3).
   load. With the real owner trusted it installed bd and dolt and
   bootstrapped a member's store in under half a minute, leaving trees clean.
   Not yet proven: the hook surviving from an environment setup script into
-  a fresh session (step 5). bd ≥ 1.3 appends patterns to a member's tracked
+  a fresh session (step 4). bd ≥ 1.3 appends patterns to a member's tracked
   `.beads/.gitignore` on bootstrap; rig restores the file, but members should
   commit those additions so the tree stays clean under plain `bd`.
 - Beads relay (`docs/relay.md`): `rig-relay stage` in a session, and a
@@ -28,7 +28,13 @@ once rig has a store of its own (step 3).
   `refs/dolt/data`. Staging, the gate, import (idempotent on re-apply) and
   the CI bootstrap were exercised on copies of a member's store; the push and
   the workflow have not yet run — that happens when the pilot adopts it.
-- Plugin and marketplace manifests; skills `rig-provision` and `rig-relay`.
+- Reviewer agent `rig-review`: fresh context, adversarial; takes its rules
+  from the member's `REVIEW.md` on the base branch; requires green CI and
+  runs the member's check; merges, sends back, or escalates to a decision
+  bead; second-independent-review mode; inherits the session's model. Loads
+  in a headless session; not yet run against a real PR.
+- Plugin and marketplace manifests; skills `rig-provision` and `rig-relay`;
+  agent `rig-review`.
 - Templates for a member repo's `CLAUDE.md` and `REVIEW.md`.
 - CI: `bin/rig-check` on every PR; a separate `pull_request_target`
   workflow runs the base branch's `bin/rig-denylist-check` over history,
@@ -50,22 +56,18 @@ once rig has a store of its own (step 3).
 3. **Owner: initialise beads for rig** from a desktop session, add the
    relay workflow (calling `./.github/workflows/beads-relay.yml`), and move
    this plan into it.
-4. **Reviewer agent** (`plugins/rig/agents/rig-review.md`): fresh context,
-   adversarial; reads the member's `REVIEW.md`; requires green CI; merges or
-   escalates to a decision bead; supports a second-independent-review mode
-   for sensitive areas; never merges what `REVIEW.md` reserves for the owner.
-   Inherit the session's model — never pin a cheaper one.
-5. **Pilot on one private member**: add `.rig/setup.sh`, adopt the
-   templates and the relay workflow, enable the plugin for local sessions.
-   Prove the relay end to end: a session stages, the PR merges, the workflow
-   pushes, and a fresh bootstrap shows the change. Verify both delivery
-   stages in a fresh cloud environment whose setup script runs
+4. **Pilot on one private member**: add `.rig/setup.sh`, adopt the
+   templates and the relay workflow, enable the plugin for local sessions,
+   and have `rig-review` review and merge its PRs in place of its own
+   reviewer. Prove the relay end to end: a session stages, the PR merges,
+   the workflow pushes, and a fresh bootstrap shows the change. Verify both
+   delivery stages in a fresh cloud environment whose setup script runs
    `bin/rig-install --trusted-owners …`. Resolve the open questions in
    `design.md`.
-6. **Second member**, replacing its own copies of setup, relay and reviewer.
-7. **Second independent security review** of everything since the first
+5. **Second member**, replacing its own copies of setup, relay and reviewer.
+6. **Second independent security review** of everything since the first
    one, with the findings fixed.
-8. **Go public**: squash history to a single commit (removes session links
+7. **Go public**: squash history to a single commit (removes session links
    and stale branches), confirm the denylist scan is clean, make the
    repository public, tag a release, and point environments' setup
    scripts at a pinned commit with `--trusted-owners`.

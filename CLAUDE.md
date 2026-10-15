@@ -56,7 +56,7 @@ base branch (`.github/workflows/denylist.yml`).
 
 - Branch, commit, push, open a PR. Never commit to `main`.
 - The owner merges every PR except docs-only ones (see `REVIEW.md` for
-  why). Once rig's reviewer agent exists, it reviews every PR and may merge
+  why). rig's reviewer agent (`rig-review`) reviews every PR and may merge
   docs-only ones.
 - Backlog: `docs/plan.md` for now. Beads arrives once the relay works —
   initialising it needs a push to `refs/dolt/data`, which a web session

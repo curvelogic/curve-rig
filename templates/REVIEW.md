@@ -22,6 +22,13 @@ Criteria applied to every PR, on top of green CI.
 | <path or kind of change> | second independent review |
 | <path or kind of change> | the owner merges |
 
+## Merging
+
+<!-- Merge method (squash or merge commit), and any check after merging:
+     e.g. "watch the deploy job on the merge commit and report its result". -->
+
+Method: squash.
+
 ## Worth flagging, not blocking
 
 <!-- Things the reviewer should mention in its comment so the owner sees

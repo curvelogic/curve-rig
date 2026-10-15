@@ -169,7 +169,7 @@ README
         | .[]' -n "$repo/$out.tmp")"
     if [ -n "$missing" ]; then
         rm -f "$repo/$out.tmp"
-        rig_warn "changed issues missing from bd's export:" $missing
+        rig_warn "changed issues missing from bd's export: $(tr '\n' ' ' <<< "$missing")"
         return 1
     fi
     mv "$repo/$out.tmp" "$repo/$out"

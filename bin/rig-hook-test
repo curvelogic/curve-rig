@@ -6,8 +6,9 @@
 #
 # Installs rig into a throwaway CLAUDE_CONFIG_DIR (the real ~/.claude is not
 # touched), starts a headless `claude -p` from the current directory, and
-# prints what the SessionStart hook said and the skills the session loaded.
-# Fails unless the hook ran and rig's skills were loaded.
+# prints what the SessionStart hook said and the skills and agents the
+# session loaded. Fails unless the hook ran and rig's skills and agents
+# were loaded.
 #
 # Without --trusted-owners the owner is a made-up one, so every repository
 # is reported as skipped: that proves the hook fires without provisioning
@@ -26,7 +27,7 @@ while [ "$#" -gt 0 ]; do
     case "$1" in
         --trusted-owners) owners="${2:-}"; shift 2 ;;
         --trusted-owners=*) owners="${1#*=}"; shift ;;
-        -h|--help) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) prompt="$1"; shift ;;
     esac
 done
@@ -53,10 +54,14 @@ hook="$(jq -r 'select(.type == "system" and .subtype == "hook_response"
 skills="$(jq -r 'select(.type == "system" and .subtype == "init")
                  | .skills[]? | select(startswith("rig-"))' \
           "$work/out.jsonl" 2>/dev/null)"
+agents="$(jq -r 'select(.type == "system" and .subtype == "init")
+                 | .agents[]? | select(startswith("rig-"))' \
+          "$work/out.jsonl" 2>/dev/null)"
 
 printf 'claude exited %s after %ss\n' "$rc" "$secs"
 printf -- '--- SessionStart hook output\n%s\n' "${hook:-(none)}"
 printf -- '--- rig skills loaded\n%s\n' "${skills:-(none)}"
+printf -- '--- rig agents loaded\n%s\n' "${agents:-(none)}"
 printf -- '--- hook log\n'
 cat "$XDG_STATE_HOME/curve-rig/session-start.log" 2>/dev/null | tail -n 20 || true
 
@@ -65,6 +70,7 @@ jq -s -e 'any(.[]; .type == "system" and .subtype == "hook_response"
                      and .hook_event == "SessionStart")' "$work/out.jsonl" >/dev/null 2>&1 ||
     { echo "FAIL: SessionStart hook did not run" >&2; status=1; }
 [ -n "$skills" ] || { echo "FAIL: no rig skills loaded" >&2; status=1; }
+[ -n "$agents" ] || { echo "FAIL: no rig agents loaded" >&2; status=1; }
 [ "$rc" -eq 0 ] || { tail -n 5 "$work/err.txt" >&2; status=1; }
 [ "$status" -eq 0 ] && echo "rig-hook-test: ok"
 exit "$status"
