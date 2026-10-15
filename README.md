@@ -35,6 +35,11 @@ stages that do not depend on any repository's settings:
 
 Local sessions use the plugin instead: see *Using rig locally*.
 
+A cloud session can read the beads tracker but cannot write it: it can push
+branches only, and beads lives on another ref. Its beads writes reach the
+tracker through the relay — staged as a file, carried by a reviewed PR,
+applied by CI. Why, and how: [`docs/relay.md`](docs/relay.md).
+
 Full account: [`docs/design.md`](docs/design.md).
 
 ## Using rig in a cloud environment

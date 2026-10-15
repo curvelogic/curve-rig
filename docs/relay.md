@@ -3,17 +3,50 @@
 How a cloud session's beads writes reach the tracker. Use the `rig-relay`
 skill in a session; this page is for adopting and changing the relay.
 
-## Why
+## Why it is needed
 
-A cloud session's git relay forwards branch creates and fast-forwards under
-`refs/heads/*` and refuses everything else — tags, notes, branch deletion
-and `refs/dolt/*` (design.md, constraint 5). Beads stores its database on
-`refs/dolt/data`, so `bd dolt push` cannot work from a session, and every
-other `bd` write reports success and is lost with the container.
+Beads keeps its issues in a Dolt database and shares it through the
+repository's own git remote, on the ref `refs/dolt/data` — not on a branch.
+Reading the tracker means fetching that ref (`bd bootstrap`); writing it
+means pushing that ref (`bd dolt push`).
 
-An Actions `GITHUB_TOKEN` with `contents: write` has no such limit. So the
-session stages its writes as an ordinary file, review carries it to the
-default branch, and CI does the push.
+A cloud session cannot push that ref. Its git access goes through a relay
+that forwards only branch creates and fast-forwards under `refs/heads/*`.
+Measured from a session against a member repository:
+
+| Push                              | Result |
+|-----------------------------------|--------|
+| a branch, created or fast-forward | ok     |
+| a branch deletion                 | 403    |
+| a tag                             | 403    |
+| `refs/notes/*`                    | 403    |
+| `refs/dolt/data`, any other ref   | 403    |
+
+Tags and deletions failing too shows this is the relay's rule, not a
+repository permission: no grant to the session changes it.
+
+What makes this dangerous rather than merely inconvenient is that bd does
+not fail. `bd create`, `bd update`, `bd close`, `bd comments add` and
+`bd remember` all report success: they write the local store and stop
+there. The container is reclaimed when the session ends, and the writes go
+with it. A session that claims an issue, records a design and closes it has
+changed nothing, and nobody is told.
+
+Two easier-looking fixes do not work:
+
+- **Commit `.beads/issues.jsonl`** and let readers import it. The export is
+  a snapshot; a store hydrated from it looks healthy and is silently stale,
+  and two sessions' exports overwrite each other. rig never seeds a store
+  from it.
+- **Push from the session another way.** Every route out of the session to
+  `github.com` goes through the same relay.
+
+CI can do what the session cannot: an Actions `GITHUB_TOKEN` with
+`contents: write` pushes any ref. So the relay moves the *write* from the
+session to CI, and uses the one thing a session can push — a branch — to
+carry it there.
+
+## How it works
 
 ```
 session                     git                       CI (member's workflow)
@@ -29,8 +62,30 @@ rig-relay stage        →    .beads/inbox/<t>-<l>.jsonl
                                                       clear applied deltas
 ```
 
-Nothing reaches the tracker without a merged PR, and the workflow applies
-only the default branch.
+1. **The session works normally.** Its `bd` writes land in the local store,
+   which was bootstrapped from `refs/dolt/data` when the session started.
+2. **It stages once, at the end.** `rig-relay stage <label>` works out
+   which issues and memories the session changed, exports exactly those
+   records from bd, and writes them to `.beads/inbox/<time>-<label>.jsonl`
+   (see *Staging*).
+3. **The file travels as code.** The session commits it on its branch and
+   opens a PR, alone or with the session's other changes. The PR is
+   reviewed like any other: a beads write reaches the tracker only when a
+   reviewer would let the same change reach the default branch.
+4. **The merge triggers the member's workflow.** It calls rig's reusable
+   workflow, which runs only on the default branch. That checks out the
+   member and rig (at a pinned commit), installs rig's pinned bd and dolt,
+   and bootstraps a fresh store from `refs/dolt/data`.
+5. **It applies the inbox.** The staleness gate refuses the run if the
+   tracker has changed any staged issue since it was staged (see
+   *Applying*); otherwise each file is imported, in time order, and the
+   store is pushed back to `refs/dolt/data`.
+6. **It clears what it applied.** It removes the applied files from the
+   default branch in one commit, so the inbox holds only what is still
+   waiting.
+
+The next session to start bootstraps from the updated ref and sees the
+changes.
 
 ## Parts
 
