@@ -7,8 +7,14 @@ once the relay works (step 4).
 
 - Two-stage delivery: `bin/rig-install` (stage 1) and
   `hooks/session-start.sh` (stage 2), with `lib/common.sh` and
-  `lib/beads.sh`. Static checks pass; **not yet run in a real cloud
-  session.**
+  `lib/beads.sh`.
+- Stage 2 run by hand (`RIG_FORCE=1`) in a multi-repo cloud session with
+  four beads-using members: all discovered (including one nested under an
+  owner directory), stores bootstrapped over https in about two minutes,
+  member trees left clean, re-run a no-op in two seconds. Single-repo
+  discovery checked too. `rig-install` checked for idempotence and for
+  merging into an existing `settings.json`. **Not yet proven: either stage
+  firing on its own** — see step 3.
 - Plugin and marketplace manifests; one skill, `rig-provision`.
 - Templates for a member repo's `CLAUDE.md` and `REVIEW.md`.
 - CI: `bin/rig-check`, plus `bin/rig-denylist-check` once the
@@ -20,11 +26,12 @@ once the relay works (step 4).
    line. Until it exists the denylist check is skipped.
 2. **Branch protection on `main`**: require the CI check; turn on automatic
    deletion of merged branches.
-3. **Prove stage 2 in a real session.** In a cloud session with this repo
-   and one beads-using member attached, run `bin/rig-install` then
-   `RIG_FORCE=1 hooks/session-start.sh`. Confirm: repos discovered in a
-   multi-repo layout, `bd`/`dolt` installed, store bootstrapped with a Dolt
-   remote, member tree clean afterwards (`git status`), re-run is a no-op.
+3. **Prove the hook fires.** In a cloud session, run `bin/rig-install`,
+   then start a *new* session in the same environment and confirm the
+   user-level SessionStart hook ran (stores present without running
+   anything). Note: bd ≥ 1.3 appends patterns to a member's tracked
+   `.beads/.gitignore` on bootstrap; rig restores the file, but members
+   should commit those additions so the tree stays clean under plain `bd`.
 4. **Beads relay.** A script that stages a session's beads changes to an
    outbox in the member's working tree (`.beads/inbox/`), and a reusable
    workflow (`workflow_call`) that, on merge to the default branch, imports
