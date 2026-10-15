@@ -74,8 +74,8 @@ In the member repo's committed `.claude/settings.json`:
 }
 ```
 
-Pin a release tag only once tags are protected by a ruleset (no updates,
-no deletion); until then a tag can be moved under you.
+Tags are protected by a ruleset (no updates, no deletion), so a release
+tag cannot be moved under you.
 
 ## Making a repo a member
 

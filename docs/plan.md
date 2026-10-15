@@ -21,7 +21,7 @@ org-level tracker. rig has no beads store of its own (see `CLAUDE.md`).
   load. With the real owner trusted it installed bd and dolt and
   bootstrapped a member's store in under half a minute, leaving trees clean.
   Not yet proven: the hook surviving from an environment setup script into
-  a fresh session (step 3). bd ≥ 1.3 appends patterns to a member's tracked
+  a fresh session (step 1). bd ≥ 1.3 appends patterns to a member's tracked
   `.beads/.gitignore` on bootstrap; rig restores the file, but members should
   commit those additions so the tree stays clean under plain `bd`.
 - Beads relay (`docs/relay.md`): `rig-relay stage` in a session, and a
@@ -40,7 +40,9 @@ org-level tracker. rig has no beads store of its own (see `CLAUDE.md`).
 - CI: `bin/rig-check` on every PR; a separate `pull_request_target`
   workflow runs the base branch's `bin/rig-denylist-check` over history,
   paths, metadata and refs, with the secret held in a `denylist`
-  environment restricted to `main`.
+  environment restricted to `main`. A tag ruleset forbids updating or
+  deleting tags, so a release tag cannot be moved under a member that pins
+  it.
 - First independent security review done; its findings fixed (trusted
   owners, `startup` matcher, pinned and digest-checked downloads, deadline
   and restore-on-kill, stdin isolation, safe exclude patterns, stricter
@@ -48,13 +50,7 @@ org-level tracker. rig has no beads store of its own (see `CLAUDE.md`).
 
 ## Next
 
-1. **Owner: create the `denylist` environment** (Settings → Environments):
-   deployment branches restricted to `main`, with an environment secret
-   `RIG_DENYLIST` — one distinctive private name per line. Do not add it as
-   a repository secret. Until it exists the denylist workflow fails.
-2. **Owner: protect tags** with a tag ruleset (no updates, no deletion)
-   before the first release tag.
-3. **Pilot on one private member**: add `.rig/setup.sh`, adopt the
+1. **Pilot on one private member**: add `.rig/setup.sh`, adopt the
    templates and the relay workflow, enable the plugin for local sessions,
    and have `rig-review` review and merge its PRs in place of its own
    reviewer. Prove the relay end to end: a session stages, the PR merges,
@@ -62,10 +58,10 @@ org-level tracker. rig has no beads store of its own (see `CLAUDE.md`).
    delivery stages in a fresh cloud environment whose setup script runs
    `bin/rig-install --trusted-owners …`. Resolve the open questions in
    `design.md`.
-4. **Second member**, replacing its own copies of setup, relay and reviewer.
-5. **Second independent security review** of everything since the first
+2. **Second member**, replacing its own copies of setup, relay and reviewer.
+3. **Second independent security review** of everything since the first
    one, with the findings fixed.
-6. **Go public**: squash history to a single commit (removes session links
+4. **Go public**: squash history to a single commit (removes session links
    and stale branches), confirm the denylist scan is clean, make the
    repository public, tag a release, and point environments' setup
    scripts at a pinned commit with `--trusted-owners`.
