@@ -26,6 +26,13 @@ else
     echo "note: shellcheck not installed; skipped" >&2
 fi
 
+# Workflows.
+if command -v actionlint >/dev/null 2>&1; then
+    actionlint || fail "actionlint"
+else
+    echo "note: actionlint not installed; skipped" >&2
+fi
+
 # JSON: every tracked file parses.
 while IFS= read -r f; do
     jq empty "$f" 2>/dev/null || fail "invalid JSON: $f"

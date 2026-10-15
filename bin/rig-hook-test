@@ -36,7 +36,7 @@ command -v claude >/dev/null 2>&1 || { echo "rig-hook-test: claude not on PATH" 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 export CLAUDE_CONFIG_DIR="$work/claude"
-export XDG_CONFIG_HOME="$work/config" XDG_STATE_HOME="$work/state"
+export XDG_CONFIG_HOME="$work/config" XDG_STATE_HOME="$work/state" RIG_LOCAL_BIN="$work/bin"
 unset RIG_TRUSTED_OWNERS
 
 "$RIG_HOME/bin/rig-install" --trusted-owners "$owners" >/dev/null

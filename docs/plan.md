@@ -1,7 +1,7 @@
 # Plan
 
 What exists, and what to do next, in order. Replace this file with beads
-once the relay works (step 3).
+once rig has a store of its own (step 3).
 
 ## Exists
 
@@ -23,7 +23,12 @@ once the relay works (step 3).
   a fresh session (step 5). bd ≥ 1.3 appends patterns to a member's tracked
   `.beads/.gitignore` on bootstrap; rig restores the file, but members should
   commit those additions so the tree stays clean under plain `bd`.
-- Plugin and marketplace manifests; one skill, `rig-provision`.
+- Beads relay (`docs/relay.md`): `rig-relay stage` in a session, and a
+  reusable workflow that applies the inbox behind a staleness gate and pushes
+  `refs/dolt/data`. Staging, the gate, import (idempotent on re-apply) and
+  the CI bootstrap were exercised on copies of a member's store; the push and
+  the workflow have not yet run — that happens when the pilot adopts it.
+- Plugin and marketplace manifests; skills `rig-provision` and `rig-relay`.
 - Templates for a member repo's `CLAUDE.md` and `REVIEW.md`.
 - CI: `bin/rig-check` on every PR; a separate `pull_request_target`
   workflow runs the base branch's `bin/rig-denylist-check` over history,
@@ -42,21 +47,18 @@ once the relay works (step 3).
    a repository secret. Until it exists the denylist workflow fails.
 2. **Owner: protect tags** with a tag ruleset (no updates, no deletion)
    before the first release tag.
-3. **Beads relay.** A script that stages a session's beads changes to an
-   outbox in the member's working tree (`.beads/inbox/`), and a reusable
-   workflow (`workflow_call`) that, on merge to the default branch, imports
-   the outbox into the store behind a staleness check and pushes
-   `refs/dolt/data`. Members call it from a three-line workflow. Ship as a
-   skill (`rig-relay`) plus `lib/relay.sh` and
-   `.github/workflows/beads-relay.yml`. Then initialise beads for rig itself
-   (from a desktop session) and move this plan into it.
+3. **Owner: initialise beads for rig** from a desktop session, add the
+   relay workflow (calling `./.github/workflows/beads-relay.yml`), and move
+   this plan into it.
 4. **Reviewer agent** (`plugins/rig/agents/rig-review.md`): fresh context,
    adversarial; reads the member's `REVIEW.md`; requires green CI; merges or
    escalates to a decision bead; supports a second-independent-review mode
    for sensitive areas; never merges what `REVIEW.md` reserves for the owner.
    Inherit the session's model — never pin a cheaper one.
 5. **Pilot on one private member**: add `.rig/setup.sh`, adopt the
-   templates, enable the plugin for local sessions. Verify both delivery
+   templates and the relay workflow, enable the plugin for local sessions.
+   Prove the relay end to end: a session stages, the PR merges, the workflow
+   pushes, and a fresh bootstrap shows the change. Verify both delivery
    stages in a fresh cloud environment whose setup script runs
    `bin/rig-install --trusted-owners …`. Resolve the open questions in
    `design.md`.

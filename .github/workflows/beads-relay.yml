@@ -1,0 +1,142 @@
+# Reusable beads relay: apply the beads deltas sessions staged in a member's
+# .beads/inbox/ and push refs/dolt/data, which a cloud session cannot.
+# See docs/relay.md.
+#
+# A member calls it from a workflow of its own, pinned to a commit of rig:
+#
+#   on:
+#     push:
+#       branches: [main]
+#       paths: [".beads/inbox/*.jsonl"]
+#     workflow_dispatch:
+#   jobs:
+#     relay:
+#       uses: curvelogic/curve-rig/.github/workflows/beads-relay.yml@<sha>
+#       with:
+#         rig-ref: <the same sha>
+#       permissions:
+#         contents: write
+#
+# Only the member's default branch is applied: a delta reaches the store
+# only after the PR carrying it has been merged.
+
+name: beads relay
+
+on:
+  workflow_call:
+    inputs:
+      rig-ref:
+        description: >-
+          Full commit SHA of curve-rig whose scripts run the relay — the same
+          SHA the caller's `uses:` line pins.
+        required: true
+        type: string
+    secrets:
+      rig-token:
+        description: >-
+          A token that can read curve-rig. Needed only while it is private.
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  relay:
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # Each run branches from the current refs/dolt/data tip, so a second
+    # concurrent push would be rejected. Queue rather than cancel: a
+    # cancelled run is a delta left unapplied.
+    concurrency:
+      group: beads-relay-${{ github.repository }}
+      cancel-in-progress: false
+    env:
+      BRANCH: ${{ github.ref_name }}
+    steps:
+      - name: Require a pinned rig
+        env:
+          RIG_REF: ${{ inputs.rig-ref }}
+        run: |
+          [[ "$RIG_REF" =~ ^[0-9a-f]{40}$ ]] ||
+            { echo "::error::rig-ref must be a full commit SHA"; exit 1; }
+
+      - name: Check out the member
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: member
+          persist-credentials: false
+
+      # Clearing the inbox pushes with GITHUB_TOKEN, which raises no workflow
+      # events, so the relay does not re-trigger itself. This gate is the
+      # backstop, and it runs before anything expensive.
+      - name: Is there anything to apply?
+        id: inbox
+        working-directory: member
+        run: |
+          shopt -s nullglob
+          deltas=(.beads/inbox/*.jsonl)
+          if [ "${#deltas[@]}" -eq 0 ]; then
+            echo "has_deltas=false" >> "$GITHUB_OUTPUT"
+            echo "Inbox empty; nothing to apply."
+          else
+            echo "has_deltas=true" >> "$GITHUB_OUTPUT"
+            printf 'queued: %s\n' "${deltas[@]}"
+          fi
+
+      - name: Check out rig
+        if: steps.inbox.outputs.has_deltas == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: curvelogic/curve-rig
+          ref: ${{ inputs.rig-ref }}
+          path: rig
+          token: ${{ secrets.rig-token || github.token }}
+          persist-credentials: false
+
+      # bd pushes refs/dolt/data from a git repository of its own, which does
+      # not see a checkout's credentials; a global rewrite reaches it.
+      - name: Authenticate git
+        if: steps.inbox.outputs.has_deltas == 'true'
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+          git config --global user.name "beads relay"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Install bd and dolt; materialise the store
+        if: steps.inbox.outputs.has_deltas == 'true'
+        working-directory: member
+        run: ../rig/bin/rig-relay bootstrap
+
+      - name: Apply the inbox
+        if: steps.inbox.outputs.has_deltas == 'true'
+        working-directory: member
+        env:
+          RIG_RELAY_APPLIED: ${{ runner.temp }}/applied
+        run: ../rig/bin/rig-relay apply
+
+      # Reset to the branch tip first, so the commit carries only the
+      # removal of the deltas this run applied — not anything bd changed in
+      # the tree, and not a delta that was merged while this run worked.
+      # If the push is refused, the deltas stay queued and the next run's
+      # staleness gate refuses rather than reapplies them: visibly stuck.
+      - name: Clear the applied deltas
+        if: steps.inbox.outputs.has_deltas == 'true'
+        working-directory: member
+        env:
+          APPLIED: ${{ runner.temp }}/applied
+        run: |
+          git fetch -q origin "$BRANCH"
+          git reset -q --hard FETCH_HEAD
+          while IFS= read -r f; do
+            git rm -q --ignore-unmatch -- "$f"
+          done < "$APPLIED"
+          if git diff --cached --quiet; then
+            echo "Nothing to clear."; exit 0
+          fi
+          git commit -q -m "beads relay: clear applied deltas"
+          git push origin "HEAD:$BRANCH" ||
+            echo "::warning::could not clear the inbox; the deltas remain queued"

@@ -126,6 +126,19 @@ _rig_beads_restore_tree() {
     done < <(git -C "$repo" status --porcelain -z 2>/dev/null)
 }
 
+# Point the tracked .beads/config.yaml at github.com over https for the
+# rest of this run. It usually names an ssh remote, and neither a cloud
+# session nor CI has ssh. The original is registered for restore first, so
+# rig_restore_all (or the hook's trap) puts it back.
+rig_beads_config_https() {
+    local cfg="$1/.beads/config.yaml" bak
+    [ -f "$cfg" ] && [ ! -L "$cfg" ] || return 0
+    bak="$(mktemp)"; cp "$cfg" "$bak"
+    rig_restore_register "$cfg" "$bak"
+    sed -i -e 's#git+ssh://git@github\.com/#https://github.com/#g' \
+           -e 's#git@github\.com:#https://github.com/#g' "$cfg"
+}
+
 _rig_bd_bootstrap() {
     cd "$1" && timeout "$2" bd bootstrap --yes </dev/null >>"$RIG_LOG" 2>&1
 }
@@ -139,10 +152,9 @@ _rig_bd_bootstrap() {
 # On failure only the store directories this run created are removed; an
 # existing store may hold local writes not yet relayed.
 rig_bootstrap_beads() {
-    local repo="$1" beads cfg bak head_before head_after before_file t d status=0
+    local repo="$1" beads head_before head_after before_file t d status=0
     local -a pre_existing=()
     beads="$repo/.beads"
-    cfg="$beads/config.yaml"
     [ -d "$beads" ] || return 0
 
     if [ -L "$beads" ]; then
@@ -173,12 +185,7 @@ rig_bootstrap_beads() {
     before_file="$(mktemp)"
     git -C "$repo" status --porcelain -z > "$before_file" 2>/dev/null || true
 
-    if [ -f "$cfg" ] && [ ! -L "$cfg" ]; then
-        bak="$(mktemp)"; cp "$cfg" "$bak"
-        rig_restore_register "$cfg" "$bak"
-        sed -i -e 's#git+ssh://git@github\.com/#https://github.com/#g' \
-               -e 's#git@github\.com:#https://github.com/#g' "$cfg"
-    fi
+    rig_beads_config_https "$repo"
 
     rig_run _rig_bd_bootstrap "$repo" "$t" || status=$?
 

@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# bin/rig-relay — the beads relay. See docs/relay.md.
+#
+# Usage:
+#   rig-relay stage [LABEL]   In a cloud session, from inside a member repo:
+#                             stage the session's beads changes as a file
+#                             under .beads/inbox/ to commit on a branch.
+#   rig-relay bootstrap       CI only: install pinned bd and dolt and
+#                             materialise the store over https.
+#   rig-relay apply           CI only: apply the inbox behind the staleness
+#                             gate and push refs/dolt/data.
+#
+# The CI commands refuse to run outside GitHub Actions unless
+# RIG_RELAY_ALLOW_CI=1: applying pushes whatever is in the inbox, and only a
+# reviewed default branch should do that.
+
+set -euo pipefail
+
+RIG_HOME="$(cd "$(dirname "$(readlink -f -- "${BASH_SOURCE[0]}")")/.." && pwd)"
+export RIG_HOME
+
+# shellcheck source=../lib/common.sh
+. "$RIG_HOME/lib/common.sh"
+# shellcheck source=../lib/relay.sh
+. "$RIG_HOME/lib/relay.sh"
+
+usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; }
+
+repo="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+    rig_warn "not inside a git repository"; exit 1; }
+[ -d "$repo/.beads" ] || { rig_warn "$repo has no .beads directory"; exit 1; }
+
+ci_only() {
+    [ "${GITHUB_ACTIONS:-}" = true ] || [ "${RIG_RELAY_ALLOW_CI:-}" = 1 ] || {
+        rig_warn "rig-relay $1 runs in CI only (set RIG_RELAY_ALLOW_CI=1 to override)"
+        exit 1
+    }
+}
+
+cmd="${1:-}"
+[ "$#" -gt 0 ] && shift
+case "$cmd" in
+    stage)
+        rig_ensure_path
+        rig_relay_stage "$repo" "${1:-}"
+        ;;
+    bootstrap)
+        ci_only bootstrap
+        # shellcheck source=../lib/pins.sh
+        . "$RIG_HOME/lib/pins.sh"
+        # shellcheck source=../lib/beads.sh
+        . "$RIG_HOME/lib/beads.sh"
+        RIG_LOG=/dev/stderr
+        rig_ensure_path
+        trap 'rig_restore_all' EXIT
+        trap 'rig_on_signal' INT TERM
+        rig_install_dolt && rig_install_bd && rig_bootstrap_beads "$repo"
+        ;;
+    apply)
+        ci_only apply
+        # shellcheck source=../lib/beads.sh
+        . "$RIG_HOME/lib/beads.sh"
+        rig_ensure_path
+        trap 'rig_restore_all' EXIT
+        trap 'rig_on_signal' INT TERM
+        rig_relay_apply "$repo"
+        ;;
+    -h|--help|"") usage ;;
+    *) rig_warn "unknown command: $cmd"; usage >&2; exit 2 ;;
+esac

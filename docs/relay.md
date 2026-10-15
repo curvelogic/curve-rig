@@ -1,0 +1,125 @@
+# The beads relay
+
+How a cloud session's beads writes reach the tracker. Use the `rig-relay`
+skill in a session; this page is for adopting and changing the relay.
+
+## Why
+
+A cloud session's git relay forwards branch creates and fast-forwards under
+`refs/heads/*` and refuses everything else — tags, notes, branch deletion
+and `refs/dolt/*` (design.md, constraint 5). Beads stores its database on
+`refs/dolt/data`, so `bd dolt push` cannot work from a session, and every
+other `bd` write reports success and is lost with the container.
+
+An Actions `GITHUB_TOKEN` with `contents: write` has no such limit. So the
+session stages its writes as an ordinary file, review carries it to the
+default branch, and CI does the push.
+
+```
+session                     git                       CI (member's workflow)
+-------                     ---                       ----------------------
+bd create / update / …
+rig-relay stage        →    .beads/inbox/<t>-<l>.jsonl
+                            branch → PR → review → default branch
+                                                  →   rig-relay bootstrap
+                                                      rig-relay apply:
+                                                        staleness gate
+                                                        bd import
+                                                        bd dolt push
+                                                      clear applied deltas
+```
+
+Nothing reaches the tracker without a merged PR, and the workflow applies
+only the default branch.
+
+## Parts
+
+- `bin/rig-relay` with `lib/relay.sh`. `stage` runs in the session; it is
+  linked into `~/.local/bin` by `bin/rig-install`. `bootstrap` and `apply`
+  run in CI and refuse to run elsewhere unless `RIG_RELAY_ALLOW_CI=1`.
+- `.github/workflows/beads-relay.yml`, a reusable workflow
+  (`workflow_call`) that a member calls.
+- The `rig-relay` skill: when and how a session stages.
+
+## Staging
+
+`rig-relay stage <label>` fetches the store's Dolt remote and compares the
+local working set with its **merge base** with the remote. Comparing with the
+remote tip instead would stage rows that changed remotely, carrying this
+store's stale values.
+
+Rows are compared by content, not by row identity: bd's schema migrations
+rewrite every row of a table or re-key comments, and a raw `dolt_diff` would
+report the whole tracker as changed. An issue is staged when its own row's
+`updated_at` moved, or when one of its comments, labels or dependencies was
+added or removed (those export inside its record). A memory is staged when
+its value changed. Deleted issues and forgotten memories cannot be carried;
+the command warns about them.
+
+The staged file is the matching records from `bd export --all`, one per
+line. A store without an `origin` Dolt remote is refused: it was hydrated
+from an export rather than bootstrapped, and its rows are not the tracker's.
+
+## Applying
+
+`rig-relay apply` reads every `*.jsonl` in the inbox and:
+
+1. **Gates on staleness.** `bd import` is an upsert, so a record older than
+   the store would silently reinstate old values. If any issue's
+   `updated_at` in the store is newer than in the delta, the whole run is
+   refused, naming the issues, and nothing is imported. Memories carry no
+   timestamp and are not gated.
+2. Imports each file in name (time) order. Re-importing an applied file is
+   a no-op.
+3. Pushes `refs/dolt/data`, with the tracked `.beads/config.yaml` pointed
+   at https for the push and restored afterwards.
+
+The workflow then resets to the branch tip and removes only the files it
+applied, so the clearing commit carries nothing bd changed in the tree and
+never drops a delta merged while it ran. Its push uses `GITHUB_TOKEN`, which
+raises no workflow events, so the relay does not re-trigger itself.
+
+**Schema migrations.** The workflow runs rig's pinned bd. If that bd is newer
+than the store's schema, bootstrapping migrates it and the push publishes the
+migration, so every clone then needs a bd at least that new. Bump the pin in
+`lib/pins.sh` deliberately.
+
+## When it is stuck
+
+- **Refused as stale.** Someone changed an issue after the delta was staged.
+  Remove the file from the inbox in a PR, re-bootstrap a session's store,
+  redo the writes and stage again.
+- **Inbox not cleared** (branch protection refused the workflow's push). The
+  deltas stay queued; the next run's gate refuses them once the store has
+  moved on. Remove the applied files by hand in a PR. Branch protection
+  must let `GITHUB_TOKEN` push to the default branch for clearing to work.
+- **A merge resurrected an applied file** on a long-lived branch. See the
+  skill's "After merging main".
+
+## Adopting it in a member
+
+1. Add a workflow, pinned to a reviewed commit of rig (both SHAs the same):
+
+   ```yaml
+   name: beads relay
+   on:
+     push:
+       branches: [main]
+       paths: [".beads/inbox/*.jsonl"]
+     workflow_dispatch:
+   jobs:
+     relay:
+       uses: curvelogic/curve-rig/.github/workflows/beads-relay.yml@<sha>
+       with:
+         rig-ref: <sha>
+       permissions:
+         contents: write
+   ```
+
+   While rig is private, the member also needs rig's Actions access set to
+   allow repositories in the organisation, and must pass a token that can
+   read rig: `secrets: { rig-token: ${{ secrets.<name> }} }`.
+2. Remove the member's own relay scripts and workflow, if it had them, once
+   its inbox is empty.
+3. Point the member's `CLAUDE.md` at the `rig-relay` skill
+   (`templates/CLAUDE.md` does).

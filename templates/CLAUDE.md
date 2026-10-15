@@ -36,8 +36,8 @@ Run it before every commit. CI runs the same.
 - Every PR is reviewed by a fresh `rig-review` agent against `REVIEW.md`.
   It merges on green CI, or escalates by opening a decision bead and leaving
   the PR open.
-- In a web session, finish beads work through the relay — `bd` writes are
-  otherwise lost with the container.
+- In a cloud session, finish beads work with the `rig-relay` skill — `bd`
+  writes are otherwise lost with the container.
 - Cross-project work and decisions waiting on the owner live in the owner's
   org-level tracker, not here.
 
