@@ -4,7 +4,8 @@
 # Usage: rig-install [--trusted-owners OWNER[,OWNER...]]
 #
 # Run from a cloud environment's setup script (see README), or by hand. It:
-#   - links the plugin's skills and agents into ~/.claude/{skills,agents};
+#   - links the plugin's skills and agents into ~/.claude/{skills,agents},
+#     and bin/rig-relay into ~/.local/bin;
 #   - records the GitHub owners whose repositories the hook may provision
 #     (also settable later via RIG_TRUSTED_OWNERS);
 #   - registers hooks/session-start.sh as a user-level SessionStart hook
@@ -49,6 +50,14 @@ for file in "$PLUGIN"/agents/*.md; do
     [ -f "$file" ] || continue
     ln -sf "$file" "$CLAUDE_DIR/agents/$(basename "$file")"
 done
+
+# Commands agents run by name.
+mkdir -p "$RIG_LOCAL_BIN"
+if [ -e "$RIG_LOCAL_BIN/rig-relay" ] && [ ! -L "$RIG_LOCAL_BIN/rig-relay" ]; then
+    rig_warn "$RIG_LOCAL_BIN/rig-relay exists and is not rig's link; left alone"
+else
+    ln -sfn "$RIG_HOME/bin/rig-relay" "$RIG_LOCAL_BIN/rig-relay"
+fi
 
 # Trusted owners.
 owners="${owners_arg:-${RIG_TRUSTED_OWNERS:-}}"

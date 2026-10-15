@@ -48,7 +48,7 @@ it has fetched rig at a pinned commit. No GitHub credentials needed (rig is
 public by then). It:
 
 - links the plugin's skills and agents into `~/.claude/skills` and
-  `~/.claude/agents`;
+  `~/.claude/agents`, and `bin/rig-relay` into `~/.local/bin`;
 - records the trusted GitHub owners (`--trusted-owners`) in
   `~/.config/curve-rig/trusted-owners`;
 - registers `hooks/session-start.sh` as a user-level SessionStart hook with
@@ -102,9 +102,11 @@ Nothing else is required; a repo with none of these is left alone.
 - **Never seed from `.beads/issues.jsonl`.** bd will hydrate an empty store
   from an export lying beside it, and the result looks healthy while being
   stale. A real store has a Dolt remote; that is the check.
-- **Write:** the relay (to come). A session stages its changes to an outbox
-  in the working tree, they reach the default branch through an ordinary PR,
-  and a workflow applies them and pushes `refs/dolt/data`.
+- **Write:** the relay. A session stages its changes to `.beads/inbox/` in
+  the working tree (`rig-relay stage`), they reach the default branch
+  through an ordinary PR, and a reusable workflow the member calls applies
+  them behind a staleness gate and pushes `refs/dolt/data`. See
+  [`relay.md`](relay.md).
 
 ## Security model
 

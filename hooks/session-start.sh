@@ -56,7 +56,7 @@ if [ "${#repos[@]}" -eq 0 ]; then
     exit 0
 fi
 
-# shellcheck disable=SC2317  # invoked indirectly via rig_run
+# shellcheck disable=SC2317,SC2329  # invoked indirectly via rig_run
 _rig_member_setup() {
     cd "$1" && timeout "$2" bash .rig/setup.sh </dev/null >>"$RIG_LOG" 2>&1
 }
