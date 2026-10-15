@@ -1,7 +1,8 @@
 # Plan
 
-What exists, and what to do next, in order. Replace this file with beads
-once rig has a store of its own (step 3).
+What exists, and what to do next, in order. This is the generic roadmap;
+work items, and anything naming a member, are tracked in the owner's
+org-level tracker. rig has no beads store of its own (see `CLAUDE.md`).
 
 ## Exists
 
@@ -20,7 +21,7 @@ once rig has a store of its own (step 3).
   load. With the real owner trusted it installed bd and dolt and
   bootstrapped a member's store in under half a minute, leaving trees clean.
   Not yet proven: the hook surviving from an environment setup script into
-  a fresh session (step 4). bd ≥ 1.3 appends patterns to a member's tracked
+  a fresh session (step 3). bd ≥ 1.3 appends patterns to a member's tracked
   `.beads/.gitignore` on bootstrap; rig restores the file, but members should
   commit those additions so the tree stays clean under plain `bd`.
 - Beads relay (`docs/relay.md`): `rig-relay stage` in a session, and a
@@ -53,10 +54,7 @@ once rig has a store of its own (step 3).
    a repository secret. Until it exists the denylist workflow fails.
 2. **Owner: protect tags** with a tag ruleset (no updates, no deletion)
    before the first release tag.
-3. **Owner: initialise beads for rig** from a desktop session, add the
-   relay workflow (calling `./.github/workflows/beads-relay.yml`), and move
-   this plan into it.
-4. **Pilot on one private member**: add `.rig/setup.sh`, adopt the
+3. **Pilot on one private member**: add `.rig/setup.sh`, adopt the
    templates and the relay workflow, enable the plugin for local sessions,
    and have `rig-review` review and merge its PRs in place of its own
    reviewer. Prove the relay end to end: a session stages, the PR merges,
@@ -64,10 +62,10 @@ once rig has a store of its own (step 3).
    delivery stages in a fresh cloud environment whose setup script runs
    `bin/rig-install --trusted-owners …`. Resolve the open questions in
    `design.md`.
-5. **Second member**, replacing its own copies of setup, relay and reviewer.
-6. **Second independent security review** of everything since the first
+4. **Second member**, replacing its own copies of setup, relay and reviewer.
+5. **Second independent security review** of everything since the first
    one, with the findings fixed.
-7. **Go public**: squash history to a single commit (removes session links
+6. **Go public**: squash history to a single commit (removes session links
    and stale branches), confirm the denylist scan is clean, make the
    repository public, tag a release, and point environments' setup
    scripts at a pinned commit with `--trusted-owners`.
