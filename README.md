@@ -14,7 +14,7 @@ deploy pipelines for the apps themselves live elsewhere.
 |---|---|
 | `bin/rig-install` | Installs rig into `~/.claude` — the user-level skills, agents and SessionStart hook. Run by a cloud environment's setup script. |
 | `hooks/session-start.sh` | Provisions every trusted repo in the session: runs its `.rig/setup.sh`, installs pinned `bd`/`dolt`, materialises the beads store. |
-| `bin/rig-relay` | The beads relay: a session stages its beads writes as a file; a member's workflow applies them on merge. |
+| `bin/rig-relay` | The beads relay: a session stages its beads writes as a file and pushes it on an inbox branch; a member's workflow applies it. |
 | `.github/workflows/beads-relay.yml` | The relay's reusable workflow, called by each beads-using member. |
 | `lib/` | Shell functions repos can source from their own `.rig/setup.sh`; `lib/pins.sh` pins every download. |
 | `plugins/rig/` | The Claude Code plugin: skills and agents, for local sessions. |
@@ -37,7 +37,7 @@ Local sessions use the plugin instead: see *Using rig locally*.
 
 A cloud session can read the beads tracker but cannot write it: it can push
 branches only, and beads lives on another ref. Its beads writes reach the
-tracker through the relay — staged as a file, carried by a reviewed PR,
+tracker through the relay — staged as a file, pushed on an inbox branch,
 applied by CI. Why, and how: [`docs/relay.md`](docs/relay.md).
 
 Full account: [`docs/design.md`](docs/design.md).
@@ -83,7 +83,7 @@ tag cannot be moved under you.
   It may source `$RIG_HOME/lib/*.sh`. See `docs/design.md` → *Repo contract*.
 - Start `CLAUDE.md` and `REVIEW.md` from `templates/`.
 - If it uses beads, a `.beads/` directory is detected for provisioning; to
-  keep writes from cloud sessions, add the relay workflow
+  keep writes from cloud sessions, add the relay workflows
   ([`docs/relay.md`](docs/relay.md) → *Adopting it*).
 
 ## Status

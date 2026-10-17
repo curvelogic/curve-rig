@@ -107,11 +107,13 @@ Nothing else is required; a repo with none of these is left alone.
 - **Never seed from `.beads/issues.jsonl`.** bd will hydrate an empty store
   from an export lying beside it, and the result looks healthy while being
   stale. A real store has a Dolt remote; that is the check.
-- **Write:** the relay. A session stages its changes to `.beads/inbox/` in
-  the working tree (`rig-relay stage`), they reach the default branch
-  through an ordinary PR, and a reusable workflow the member calls applies
-  them behind a staleness gate and pushes `refs/dolt/data`. See
-  [`relay.md`](relay.md).
+- **Write:** the relay. A session stages its changes as one file and pushes
+  it alone on a branch `beads-inbox/<time>-<label>` (`rig-relay stage`).
+  The push dispatches a workflow on the member's default branch, which
+  reads the file from the branch as data, applies it behind a staleness
+  gate, pushes `refs/dolt/data` and deletes the branch. Beads writes reach
+  the tracker as directly as possible: there is no review gate on them, and
+  nothing reaches the default branch. See [`relay.md`](relay.md).
 
 ## Security model
 
@@ -128,6 +130,11 @@ Nothing else is required; a repo with none of these is left alone.
   against a digest in `lib/pins.sh`; rig itself is fetched at a pinned
   commit. A compromised upstream release or a push to rig's `main` does not
   reach environments until a reviewed pin changes.
+- **The beads relay** writes the tracker with a token that can push the
+  member, so it runs only from the member's default branch. Its
+  push-triggered half, which runs from an inbox branch, has
+  `actions: write` only and no secrets; it just dispatches the other.
+  Inbox branches are read with git as data and never checked out.
 - **The denylist secret** lives in a `denylist` environment restricted to
   `main`. PRs are scanned by a `pull_request_target` workflow that runs the
   base branch's scanner over the PR's commits as data; no PR code runs with

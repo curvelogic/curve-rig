@@ -37,7 +37,9 @@ Run it before every commit. CI runs the same.
   It merges on green CI, or escalates by opening a decision bead and leaving
   the PR open.
 - In a cloud session, finish beads work with the `rig-relay` skill — `bd`
-  writes are otherwise lost with the container.
+  writes are otherwise lost with the container. It pushes them on a
+  `beads-inbox/…` branch of their own; never commit `.beads/inbox/` files
+  in a PR.
 - Cross-project work and decisions waiting on the owner live in the owner's
   org-level tracker, not here.
 

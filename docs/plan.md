@@ -24,11 +24,16 @@ org-level tracker. rig has no beads store of its own (see `CLAUDE.md`).
   constraints 8 and 9); rig's own is proven once it is public (step 5). bd ≥ 1.3 appends patterns to a member's tracked
   `.beads/.gitignore` on bootstrap; rig restores the file, but members should
   commit those additions so the tree stays clean under plain `bd`.
-- Beads relay (`docs/relay.md`): `rig-relay stage` in a session, and a
-  reusable workflow that applies the inbox behind a staleness gate and pushes
-  `refs/dolt/data`. Staging, the gate, import (idempotent on re-apply) and
-  the CI bootstrap were exercised on copies of a member's store; the push and
-  the workflow have not yet run — that happens when the pilot adopts it.
+- Beads relay (`docs/relay.md`): `rig-relay stage` in a session pushes the
+  delta alone on a `beads-inbox/…` branch; a push-triggered workflow with
+  no secrets dispatches the reusable relay on the default branch, which
+  reads the branch as data, applies it behind a staleness gate, pushes
+  `refs/dolt/data` and deletes the branch. Staging, the gate, import
+  (idempotent on re-apply) and the CI bootstrap were exercised on copies
+  of a member's store; `bin/rig-relay-test` covers the branch push,
+  validation, applying from refs and deletion against a local origin. The
+  GitHub side (dispatch, permissions, pushes) has not yet run — that
+  happens when the pilot adopts it (`relay.md` → *Checking it end to end*).
 - Reviewer agent `rig-review`: fresh context, adversarial; takes its rules
   from the member's `REVIEW.md` on the base branch; requires green CI and
   runs the member's check; merges, sends back, or escalates to a decision
@@ -53,11 +58,11 @@ org-level tracker. rig has no beads store of its own (see `CLAUDE.md`).
 1. **Pilot on one private member**: add `.rig/setup.sh`, adopt the
    templates and the relay workflow, enable the plugin for local sessions,
    and have `rig-review` review and merge its PRs in place of its own
-   reviewer. Prove the relay end to end: a session stages, the PR merges,
-   the workflow pushes, and a fresh bootstrap shows the change. While rig is
-   private, install it by hand in the session (the `rig-provision` skill)
-   rather than from the setup script, and give the relay workflow its
-   private-rig access (`docs/relay.md` → *Adopting it*).
+   reviewer. Prove the relay end to end (`relay.md` → *Checking it end to
+   end*). While rig is private, install it by hand in the session (the
+   `rig-provision` skill) rather than from the setup script, and give the
+   relay workflow its private-rig access (`docs/relay.md` → *Adopting
+   it*).
 2. **Second member**, replacing its own copies of setup, relay and reviewer.
 3. **Second independent security review** of everything since the first
    one, with the findings fixed.
