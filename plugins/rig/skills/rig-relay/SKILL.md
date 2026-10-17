@@ -8,8 +8,9 @@ description: Save this cloud session's beads changes (bd create, update, close, 
 A cloud session cannot push `refs/dolt/data`. `bd dolt push` fails there, and
 every other `bd` write reports success, lands in the local store and is lost
 with the container. The relay carries the writes instead: you stage them as a
-file in the repository, it reaches the default branch through an ordinary PR,
-and the member's `beads relay` workflow applies it and pushes the store.
+file, `rig-relay` pushes it alone on a `beads-inbox/…` branch, and the
+member's `beads relay` workflow applies it and pushes the store. Nothing goes
+through a PR.
 
 Locally, none of this applies: use `bd dolt push`.
 
@@ -19,24 +20,30 @@ After the session's final `bd` write, from inside the member repository:
 
 ```bash
 rig-relay stage <short-label>
-git add .beads/inbox && git commit -m "beads: relay session changes"
 ```
 
 (If `rig-relay` is not on PATH:
 `"${RIG_HOME:-$HOME/.local/share/curve-rig}/bin/rig-relay" stage <label>`.)
 
-Then push and open a PR as usual — on its own, or as the last commit of the
-session's final PR. On merge the workflow applies it.
+It writes `.beads/inbox/<time>-<label>.jsonl`, commits only that file on a
+new branch `beads-inbox/<time>-<label>` based on the default branch, pushes
+it and removes the file. Your own branch, index and working tree are not
+touched. Expect `Pushed beads-inbox/…`; the relay applies it within minutes.
 
+- **Never commit inbox files** in your own branches or PRs. If `stage`
+  could not push, it keeps the file and says so: retry with
+  `rig-relay push .beads/inbox/<file>`, and never `git add` it.
 - Stage **once**, after the last write. A staged file is a point-in-time
-  export: writes after it are not in it. Staging again writes a second file
-  with the latest values; that is harmless, but if anyone changes those
-  issues in between, the older file is refused and holds up the inbox.
+  export: writes after it are not in it. Staging again pushes a second
+  branch with the latest values; that is harmless, but if anyone changes
+  those issues in between, the older one is refused.
 - "No beads changes to relay" means the store matches the tracker; nothing to
-  commit.
+  push.
 - It refuses a store with no `origin` Dolt remote: that store was not
   bootstrapped from the tracker, so its rows are not the tracker's. Use the
   `rig-provision` skill to bootstrap it, then redo the writes.
+- Do not push `beads-inbox/…` branches by hand: the relay rejects anything
+  but exactly one well-named delta.
 
 ## Limits
 
@@ -45,25 +52,15 @@ session's final PR. On merge the workflow applies it.
   not: `stage` names each one. Tell the user which, so they can be made
   from a session that can push the store.
 - Memories are applied without a staleness check: the latest relay wins.
-- If the repository has no `beads relay` workflow, staged files sit in the
-  inbox unapplied. Tell the user rather than leaving it silent.
-
-## After merging main into a long-lived branch
-
-Merging can resurrect a staged file the relay has already applied and
-cleared. Before staging again, reset the inbox to the default branch's state
-(`git checkout <ref> -- <dir>` is not enough: it keeps files the ref lacks):
-
-```bash
-git fetch origin main
-git restore --source=origin/main --staged --worktree -- .beads/inbox
-```
-
-(Use the repository's default branch if it is not `main`.)
+- If the repository has no `beads relay` workflows, inbox branches sit
+  unapplied. Tell the user rather than leaving it silent.
+- If the relay refuses or rejects your branch (its run fails naming it),
+  the writes did not land. Tell the user: the fix is to redo the writes in
+  a fresh session and stage again, and the owner deletes the old branch.
 
 ## Never
 
-- Edit or hand-write files in `.beads/inbox/`.
+- Edit or hand-write files in `.beads/inbox/`, or commit them.
 - `bd import` in a session, or seed a store from `.beads/issues.jsonl`.
 - `bd dolt pull` after your own delta is relayed: the store holds its own
   commits for those rows and the pull conflicts. Re-bootstrap, or let the

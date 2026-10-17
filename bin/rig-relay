@@ -4,15 +4,22 @@
 # Usage:
 #   rig-relay stage [LABEL]   In a cloud session, from inside a member repo:
 #                             stage the session's beads changes as a file
-#                             under .beads/inbox/ to commit on a branch.
+#                             and push it alone on a branch
+#                             beads-inbox/<time>-<label>.
+#   rig-relay push FILE       Push a delta already staged in .beads/inbox/
+#                             (to retry after `stage` could not push).
 #   rig-relay bootstrap       CI only: install pinned bd and dolt and
 #                             materialise the store over https.
-#   rig-relay apply           CI only: apply the inbox behind the staleness
-#                             gate and push refs/dolt/data.
+#   rig-relay collect DIR     CI only: read every inbox branch's delta, as
+#                             data, into DIR; reject malformed branches.
+#   rig-relay apply DIR       CI only: apply DIR's deltas behind the
+#                             staleness gate and push refs/dolt/data.
+#   rig-relay finish DIR      CI only: delete the applied inbox branches;
+#                             fail naming any rejected or refused.
 #
 # The CI commands refuse to run outside GitHub Actions unless
-# RIG_RELAY_ALLOW_CI=1: applying pushes whatever is in the inbox, and only a
-# reviewed default branch should do that.
+# RIG_RELAY_ALLOW_CI=1: they push the store, and only the member's default
+# branch workflow should do that.
 
 set -euo pipefail
 
@@ -24,7 +31,9 @@ export RIG_HOME
 # shellcheck source=../lib/relay.sh
 . "$RIG_HOME/lib/relay.sh"
 
-usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; }
+
+case "${1:-}" in -h|--help|"") usage; exit 0 ;; esac
 
 repo="$(git rev-parse --show-toplevel 2>/dev/null)" || {
     rig_warn "not inside a git repository"; exit 1; }
@@ -44,6 +53,10 @@ case "$cmd" in
         rig_ensure_path
         rig_relay_stage "$repo" "${1:-}"
         ;;
+    push)
+        [ -n "${1:-}" ] || { usage >&2; exit 2; }
+        rig_relay_push "$repo" "$1"
+        ;;
     bootstrap)
         ci_only bootstrap
         # shellcheck source=../lib/pins.sh
@@ -56,15 +69,20 @@ case "$cmd" in
         trap 'rig_on_signal' INT TERM
         rig_install_dolt && rig_install_bd && rig_bootstrap_beads "$repo"
         ;;
+    collect|finish)
+        ci_only "$cmd"
+        [ -n "${1:-}" ] || { usage >&2; exit 2; }
+        "rig_relay_$cmd" "$repo" "$1"
+        ;;
     apply)
         ci_only apply
+        [ -n "${1:-}" ] || { usage >&2; exit 2; }
         # shellcheck source=../lib/beads.sh
         . "$RIG_HOME/lib/beads.sh"
         rig_ensure_path
         trap 'rig_restore_all' EXIT
         trap 'rig_on_signal' INT TERM
-        rig_relay_apply "$repo"
+        rig_relay_apply "$repo" "$1"
         ;;
-    -h|--help|"") usage ;;
     *) rig_warn "unknown command: $cmd"; usage >&2; exit 2 ;;
 esac
