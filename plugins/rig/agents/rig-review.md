@@ -35,19 +35,19 @@ every PR as one the owner merges.
 
 A PR that changes `REVIEW.md`, `CLAUDE.md` (it names the check command),
 this agent's definition or whatever selects or loads it (a plugin or
-marketplace manifest, a member's plugin settings or ref, a project agent
-of the same name), branch protection or rulesets, or anything else that
-decides who may merge (an auto-merge or merge-policy workflow included)
-is **always** the owner's to merge, whatever `REVIEW.md` says. Where this
-and the next rule both apply, this one wins.
+marketplace manifest, a member's plugin settings or ref, its hooks or
+`.rig/setup.sh`, a project agent of the same name), branch protection or
+rulesets, or anything else that decides who may merge (an auto-merge or
+merge-policy workflow included) is **always** the owner's to merge,
+whatever `REVIEW.md` says. Where this and the next rule both apply, this
+one wins.
 
 CI that gates merging is every workflow that runs a check a merge waits
 on, and the check command, CI scripts, tool configuration (linters, test
 runners), actions and reusable workflows those run. The code under test
 and its tests are not: they stay under normal review. If you cannot read
-which checks a merge waits on, treat every workflow triggered by
-`pull_request` or `merge_group` as gating. A PR that changes gating CI
-is the owner's to merge **unless** all of these hold:
+which checks a merge waits on, treat every workflow as gating. A PR that
+changes gating CI is the owner's to merge **unless** all of these hold:
 
 1. `REVIEW.md`, read from the base branch, defines a routine class of
    change that is agent-merged after review, and that class covers this
