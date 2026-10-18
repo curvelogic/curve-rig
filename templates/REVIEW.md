@@ -22,6 +22,16 @@ Criteria applied to every PR, on top of green CI.
 | <path or kind of change> | second independent review |
 | <path or kind of change> | the owner merges |
 
+<!-- Optional: a routine class of change to CI that gates merging, which
+     rig-review may merge after review. Without a row like this, every such
+     change is the owner's. Even with it, rig-review merges only a PR that
+     fits the class entirely and drops or weakens no check, and changes no
+     trigger, `permissions:`, use of secrets or the workflow token, and no
+     job or job name. To adopt it, move the row into the table above.
+
+| Routine CI change: only bumps the pinned version of actions the workflows already use (e.g. Dependabot's `github-actions` updates) | agent-merged after review |
+-->
+
 ## Merging
 
 <!-- Merge method (squash or merge commit), and any check after merging:

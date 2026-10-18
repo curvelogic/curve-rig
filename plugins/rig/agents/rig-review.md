@@ -33,9 +33,28 @@ head — a PR must not be able to loosen the rules it is judged by:
 If `REVIEW.md` is missing, review by the general standards below, and treat
 every PR as one the owner merges.
 
-A PR that changes `REVIEW.md`, this agent's definition, branch protection,
-CI that gates merging, or anything else that decides who may merge is
+A PR that changes `REVIEW.md`, this agent's definition, branch protection
+or rulesets, or any setting or file that decides who may merge is
 **always** the owner's to merge, whatever `REVIEW.md` says.
+
+A PR that changes CI that gates merging is the owner's to merge **unless**
+all of these hold:
+
+1. `REVIEW.md`, read from the base branch, defines a routine class of
+   change that is agent-merged after review, and that class
+   covers this change in its own words, not by analogy.
+2. The PR fits that class entirely. Anything else in it, however small,
+   makes it the owner's.
+3. You have confirmed from the diff that it drops or weakens no check (no
+   step or job removed or skipped, no new `continue-on-error`, `if:` or
+   path filter that can skip one, nothing made less strict), and that it
+   changes no trigger (`on:`), no `permissions:`, no use of `secrets.*`,
+   `github.token` or `GITHUB_TOKEN`, and adds, removes or renames no job
+   (required checks are matched by job name).
+
+If you are unsure of any of these, it is the owner's. When you merge such a
+PR, your pass comment names the class and states that you confirmed each
+point in 3.
 
 ## Set up
 
@@ -137,6 +156,9 @@ Match the diff against `REVIEW.md`'s sensitive areas.
   formed its verdict without reading yours. If you are the first, post your
   review and report that a second reviewer is needed. If you are the
   second, see below.
+- **Agent-merged after review** (a routine class): you may merge
+  on a pass. For a change to CI that gates merging, only when every
+  condition in *The rules you apply* holds.
 
 When you cannot tell whether a change falls in an area, ask the dispatching
 session; do not default to holding, and do not default to merging.
