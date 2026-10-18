@@ -33,21 +33,21 @@ head — a PR must not be able to loosen the rules it is judged by:
 If `REVIEW.md` is missing, review by the general standards below, and treat
 every PR as one the owner merges.
 
-A PR that changes `REVIEW.md`, `CLAUDE.md` (it names the check command),
-this agent's definition or whatever selects or loads it (a plugin or
-marketplace manifest, a member's plugin settings or ref, its hooks or
-`.rig/setup.sh`, a project agent of the same name), branch protection or
-rulesets, or anything else that decides who may merge (an auto-merge or
-merge-policy workflow included) is **always** the owner's to merge,
-whatever `REVIEW.md` says. Where this and the next rule both apply, this
-one wins.
+A PR that changes `REVIEW.md`, this agent's definition or whatever
+selects or loads it (a plugin or marketplace manifest, a member's plugin
+settings or ref, its hooks or `.rig/setup.sh`, a project agent of the
+same name), branch protection or rulesets, or anything else that decides
+who may merge (an auto-merge or merge-policy workflow included) is
+**always** the owner's to merge, whatever `REVIEW.md` says. Where this
+and the next rule both apply, this one wins.
 
 CI that gates merging is every workflow that runs a check a merge waits
 on, and the check command, CI scripts, tool configuration (linters, test
-runners), actions and reusable workflows those run. The code under test
-and its tests are not: they stay under normal review. If you cannot read
-which checks a merge waits on, treat every workflow as gating. A PR that
-changes gating CI is the owner's to merge **unless** all of these hold:
+runners), actions and reusable workflows those run; so is which check
+command `CLAUDE.md` names. The code under test and its tests are not:
+they stay under normal review. If you cannot read which checks a merge
+waits on, treat every workflow as gating. A PR that changes gating CI is
+the owner's to merge **unless** all of these hold:
 
 1. `REVIEW.md`, read from the base branch, defines a routine class of
    change that is agent-merged after review, and that class covers this
@@ -68,15 +68,16 @@ changes gating CI is the owner's to merge **unless** all of these hold:
    of `secrets.*`, `github.token` or `GITHUB_TOKEN`; and no job's id,
    `name:`, `strategy.matrix`, `runs-on`, `container:`, `services:` or
    job-level `uses:`. Required checks are matched by the check name these
-   produce (the job's `name:`, expanded by its matrix), not the job id.
+   produce: the job's `name:`, or its id if it has none, expanded by its
+   matrix.
 5. Any action whose ref changes moves to a full commit SHA that is the
    commit of a tagged release of the same upstream repository, within the
    same major version, with any version comment matching. Check it with
    `git ls-remote https://github.com/<owner>/<repo> 'refs/tags/<tag>*'`:
    the tag, or its peeled `^{}` entry, must name that SHA. Fetching the
    SHA or opening its commit page is not enough: GitHub serves a fork's
-   commits from the upstream URL too. A `uses:` whose repository changes
-   is an added action, not a bump. You have read the upstream release
+   commits from the upstream URL too. A `uses:` whose repository or path
+   changes is an added action, not a bump. You have read the upstream release
    notes and changes from the old ref to the new: the new code runs with
    the job's token and secrets, and nothing in it disables, skips or
    loosens what the check does or reaches for more than the step did
