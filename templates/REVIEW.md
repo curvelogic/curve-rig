@@ -14,8 +14,9 @@ Criteria applied to every PR, on top of green CI.
 
 ## Sensitive areas
 
-<!-- Paths or kinds of change that need more than one review. For each,
-     say which: "second independent review" or "the owner merges". -->
+<!-- Paths or kinds of change with a rule of their own. For each, say
+     which: "second independent review", "the owner merges", or
+     "agent-merged after review" (a routine class). -->
 
 | Area | Rule |
 |---|---|
@@ -25,11 +26,15 @@ Criteria applied to every PR, on top of green CI.
 <!-- Optional: a routine class of change to CI that gates merging, which
      rig-review may merge after review. Without a row like this, every such
      change is the owner's. Even with it, rig-review merges only a PR that
-     fits the class entirely and drops or weakens no check, and changes no
-     trigger, `permissions:`, use of secrets or the workflow token, and no
-     job or job name. To adopt it, move the row into the table above.
+     fits the class entirely and meets every condition in its definition:
+     no check dropped or weakened; no trigger, `permissions:`, secret or
+     token use, job, job name or matrix changed; each bumped action moved
+     to the full SHA of an upstream release in the same major version,
+     with its release notes read. Reusable workflows and actions that are
+     themselves the check stay the owner's. To adopt it, move the row into
+     the table above.
 
-| Routine CI change: only bumps the pinned version of actions the workflows already use (e.g. Dependabot's `github-actions` updates) | agent-merged after review |
+| Routine action bump (Dependabot `github-actions`) | agent-merged after review |
 -->
 
 ## Merging

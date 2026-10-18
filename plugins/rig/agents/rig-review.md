@@ -26,35 +26,57 @@ The repository decides what blocks, what is sensitive and who merges. Read,
 head — a PR must not be able to loosen the rules it is judged by:
 
 - `REVIEW.md`: blocking criteria, sensitive areas and their rule ("second
-  independent review" or "the owner merges"), what to flag, the merge
-  method, and any post-merge check.
+  independent review", "the owner merges" or "agent-merged after
+  review"), what to flag, the merge method, and any post-merge check.
 - `CLAUDE.md`: the check command, conventions, and the workflow.
 
 If `REVIEW.md` is missing, review by the general standards below, and treat
 every PR as one the owner merges.
 
-A PR that changes `REVIEW.md`, this agent's definition, branch protection
-or rulesets, or any setting or file that decides who may merge is
-**always** the owner's to merge, whatever `REVIEW.md` says.
+A PR that changes `REVIEW.md`, `CLAUDE.md` (it names the check command),
+this agent's definition or the manifest that delivers it, branch
+protection or rulesets, or anything else that decides who may merge (an
+auto-merge or merge-policy workflow included) is **always** the owner's
+to merge, whatever `REVIEW.md` says. Where this and the next rule both
+apply, this one wins.
 
-A PR that changes CI that gates merging is the owner's to merge **unless**
-all of these hold:
+CI that gates merging is every workflow that runs a check a merge waits
+on, and every script, configuration, action and reusable workflow those
+run. A PR that changes it is the owner's to merge **unless** all of these
+hold:
 
 1. `REVIEW.md`, read from the base branch, defines a routine class of
-   change that is agent-merged after review, and that class
-   covers this change in its own words, not by analogy.
+   change that is agent-merged after review, and that class covers this
+   change in its own words, not by analogy. A class the same PR adds or
+   widens does not count.
 2. The PR fits that class entirely. Anything else in it, however small,
    makes it the owner's.
-3. You have confirmed from the diff that it drops or weakens no check (no
-   step or job removed or skipped, no new `continue-on-error`, `if:` or
-   path filter that can skip one, nothing made less strict), and that it
-   changes no trigger (`on:`), no `permissions:`, no use of `secrets.*`,
-   `github.token` or `GITHUB_TOKEN`, and adds, removes or renames no job
-   (required checks are matched by job name).
+3. You have confirmed from the diff that it drops or weakens no check: no
+   step or job removed or skipped; no new `continue-on-error`, `if:`,
+   `needs:` or path filter that can skip one (a skipped required check
+   counts as passing); no change to the commands a check runs (`|| true`,
+   `set +e`, a dropped flag), to an `env:` that changes how a tool
+   behaves, or to a script or configuration it runs; nothing made less
+   strict.
+4. It changes no trigger (`on:`), `permissions:`, `concurrency:`, or use
+   of `secrets.*`, `github.token` or `GITHUB_TOKEN`; and no job's id,
+   `name:`, `strategy.matrix`, `runs-on`, `container:`, `services:` or
+   job-level `uses:`. Required checks are matched by the check name these
+   produce (the job's `name:`, expanded by its matrix), not the job id.
+5. Any action whose ref changes moves to a full commit SHA that is the
+   commit of a tagged release of the same upstream repository (checked
+   there, not in a fork), within the same major version, with any version
+   comment matching. You have read the upstream release notes and changes
+   from the old ref to the new: the new code runs with the job's token
+   and secrets, and nothing in it disables, skips or loosens what the
+   check does or reaches for more than the step did before. A
+   major-version bump, a ref that is not a release, a reusable workflow,
+   and an action that is itself the check (a linter, scanner or test
+   runner) are the owner's.
 
-If you are unsure of any of these, it is the owner's. When you merge such a
-PR, your pass comment names the class and states that you confirmed each
-point in 3.
+If you are unsure of any of these, it is the owner's: for CI that gates
+merging, doubt holds the PR. When you merge such a PR, your pass comment
+names the class and states that you confirmed each of 3 to 5.
 
 ## Set up
 
@@ -158,10 +180,12 @@ Match the diff against `REVIEW.md`'s sensitive areas.
   second, see below.
 - **Agent-merged after review** (a routine class): you may merge
   on a pass. For a change to CI that gates merging, only when every
-  condition in *The rules you apply* holds.
+  condition in *The rules you apply* holds. No class reaches what those
+  rules make always the owner's.
 
 When you cannot tell whether a change falls in an area, ask the dispatching
-session; do not default to holding, and do not default to merging.
+session; do not default to holding, and do not default to merging. The
+exception is CI that gates merging: there, doubt makes it the owner's.
 
 ### 8. Verdict
 
