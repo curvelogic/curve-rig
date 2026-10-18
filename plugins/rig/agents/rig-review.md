@@ -56,23 +56,28 @@ hold:
    `needs:` or path filter that can skip one (a skipped required check
    counts as passing); no change to the commands a check runs (`|| true`,
    `set +e`, a dropped flag), to an `env:` that changes how a tool
-   behaves, or to a script or configuration it runs; nothing made less
-   strict.
+   behaves, or to a script or configuration it runs; no step or action
+   added; nothing written to `$GITHUB_ENV`, `$GITHUB_PATH` or
+   `$GITHUB_OUTPUT` that a check reads; nothing made less strict.
 4. It changes no trigger (`on:`), `permissions:`, `concurrency:`, or use
    of `secrets.*`, `github.token` or `GITHUB_TOKEN`; and no job's id,
    `name:`, `strategy.matrix`, `runs-on`, `container:`, `services:` or
    job-level `uses:`. Required checks are matched by the check name these
    produce (the job's `name:`, expanded by its matrix), not the job id.
 5. Any action whose ref changes moves to a full commit SHA that is the
-   commit of a tagged release of the same upstream repository (checked
-   there, not in a fork), within the same major version, with any version
-   comment matching. You have read the upstream release notes and changes
-   from the old ref to the new: the new code runs with the job's token
-   and secrets, and nothing in it disables, skips or loosens what the
-   check does or reaches for more than the step did before. A
-   major-version bump, a ref that is not a release, a reusable workflow,
-   and an action that is itself the check (a linter, scanner or test
-   runner) are the owner's.
+   commit of a tagged release of the same upstream repository, within the
+   same major version, with any version comment matching. Check it with
+   `git ls-remote https://github.com/<owner>/<repo> 'refs/tags/<tag>*'`:
+   the tag, or its peeled `^{}` entry, must name that SHA. Fetching the
+   SHA or opening its commit page is not enough: GitHub serves a fork's
+   commits from the upstream URL too. A `uses:` whose repository changes
+   is an added action, not a bump. You have read the upstream release
+   notes and changes from the old ref to the new: the new code runs with
+   the job's token and secrets, and nothing in it disables, skips or
+   loosens what the check does or reaches for more than the step did
+   before. A major-version bump, a ref that is not a release, a reusable
+   workflow, and an action that is itself the check (a linter, scanner or
+   test runner) are the owner's.
 
 If you are unsure of any of these, it is the owner's: for CI that gates
 merging, doubt holds the PR. When you merge such a PR, your pass comment
@@ -178,10 +183,10 @@ Match the diff against `REVIEW.md`'s sensitive areas.
   formed its verdict without reading yours. If you are the first, post your
   review and report that a second reviewer is needed. If you are the
   second, see below.
-- **Agent-merged after review** (a routine class): you may merge
-  on a pass. For a change to CI that gates merging, only when every
-  condition in *The rules you apply* holds. No class reaches what those
-  rules make always the owner's.
+- **Agent-merged after review** (a routine class): you may merge on a
+  pass. For a change to CI that gates merging, only when every condition
+  in *The rules you apply* holds. No class reaches what those rules make
+  always the owner's.
 
 When you cannot tell whether a change falls in an area, ask the dispatching
 session; do not default to holding, and do not default to merging. The

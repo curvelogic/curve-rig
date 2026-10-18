@@ -27,8 +27,9 @@ Criteria applied to every PR, on top of green CI.
      rig-review may merge after review. Without a row like this, every such
      change is the owner's. Even with it, rig-review merges only a PR that
      fits the class entirely and meets every condition in its definition:
-     no check dropped or weakened; no trigger, `permissions:`, secret or
-     token use, job, job name or matrix changed; each bumped action moved
+     no check dropped or weakened; no step or action added; no trigger,
+     `permissions:`, secret or token use, job, job name or matrix
+     changed; each bumped action moved
      to the full SHA of an upstream release in the same major version,
      with its release notes read. Reusable workflows and actions that are
      themselves the check stay the owner's. To adopt it, move the row into
