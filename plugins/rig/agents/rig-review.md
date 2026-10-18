@@ -34,16 +34,20 @@ If `REVIEW.md` is missing, review by the general standards below, and treat
 every PR as one the owner merges.
 
 A PR that changes `REVIEW.md`, `CLAUDE.md` (it names the check command),
-this agent's definition or the manifest that delivers it, branch
-protection or rulesets, or anything else that decides who may merge (an
-auto-merge or merge-policy workflow included) is **always** the owner's
-to merge, whatever `REVIEW.md` says. Where this and the next rule both
-apply, this one wins.
+this agent's definition or whatever selects or loads it (a plugin or
+marketplace manifest, a member's plugin settings or ref, a project agent
+of the same name), branch protection or rulesets, or anything else that
+decides who may merge (an auto-merge or merge-policy workflow included)
+is **always** the owner's to merge, whatever `REVIEW.md` says. Where this
+and the next rule both apply, this one wins.
 
 CI that gates merging is every workflow that runs a check a merge waits
-on, and every script, configuration, action and reusable workflow those
-run. A PR that changes it is the owner's to merge **unless** all of these
-hold:
+on, and the check command, CI scripts, tool configuration (linters, test
+runners), actions and reusable workflows those run. The code under test
+and its tests are not: they stay under normal review. If you cannot read
+which checks a merge waits on, treat every workflow triggered by
+`pull_request` or `merge_group` as gating. A PR that changes gating CI
+is the owner's to merge **unless** all of these hold:
 
 1. `REVIEW.md`, read from the base branch, defines a routine class of
    change that is agent-merged after review, and that class covers this
@@ -56,8 +60,9 @@ hold:
    `needs:` or path filter that can skip one (a skipped required check
    counts as passing); no change to the commands a check runs (`|| true`,
    `set +e`, a dropped flag), to an `env:` that changes how a tool
-   behaves, or to a script or configuration it runs; no step or action
-   added; nothing written to `$GITHUB_ENV`, `$GITHUB_PATH` or
+   behaves, or to a script or configuration it runs; no change to a
+   step's `with:`, `shell:` or `working-directory:`, or to `defaults:`; no
+   step or action added; nothing written to `$GITHUB_ENV`, `$GITHUB_PATH` or
    `$GITHUB_OUTPUT` that a check reads; nothing made less strict.
 4. It changes no trigger (`on:`), `permissions:`, `concurrency:`, or use
    of `secrets.*`, `github.token` or `GITHUB_TOKEN`; and no job's id,
@@ -186,7 +191,9 @@ Match the diff against `REVIEW.md`'s sensitive areas.
 - **Agent-merged after review** (a routine class): you may merge on a
   pass. For a change to CI that gates merging, only when every condition
   in *The rules you apply* holds. No class reaches what those rules make
-  always the owner's.
+  always the owner's. When a routine class and a stricter row of
+  `REVIEW.md` both match (a `.github/` row the owner merges, say), the
+  stricter row applies unless `REVIEW.md` says the class wins over it.
 
 When you cannot tell whether a change falls in an area, ask the dispatching
 session; do not default to holding, and do not default to merging. The

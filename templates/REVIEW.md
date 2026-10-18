@@ -33,9 +33,11 @@ Criteria applied to every PR, on top of green CI.
      to the full SHA of an upstream release in the same major version,
      with its release notes read. Reusable workflows and actions that are
      themselves the check stay the owner's. To adopt it, move the row into
-     the table above.
+     the table above; if another row also covers workflows (`.github/`,
+     say), add "this class wins over it" to this row, or the stricter row
+     applies.
 
-| Routine action bump (Dependabot `github-actions`) | agent-merged after review |
+| Only third-party action `uses:` refs change | agent-merged after review |
 -->
 
 ## Merging
