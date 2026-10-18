@@ -306,15 +306,40 @@ delete branches; whoever owns the repository deletes abandoned ones.
        with:
          rig-ref: <sha>
          inbox-branch: ${{ inputs.inbox-branch }}
+       secrets:
+         rig-token: ${{ secrets.<name> }}
        permissions:
          contents: write
    ```
 
-   While rig is private, the member also needs rig's Actions access set to
-   allow repositories in the organisation, and must pass a token that can
-   read rig: `secrets: { rig-token: ${{ secrets.<name> }} }`.
+   The `secrets:` block is needed only while rig is private: it passes a
+   token that can read rig, from a secret of the member's. Keep it in block
+   form; written inline as a flow mapping (`{ rig-token: ${{ … }} }`) it is
+   not valid YAML. While rig is private, rig's own Actions access (Settings
+   → Actions → General → Access) must also allow repositories in the
+   organisation.
 
-2. Add the dispatcher at `.github/workflows/beads-inbox.yml`. It names the
+2. If the member runs Dependabot's `github-actions` ecosystem, make it
+   ignore rig. Otherwise it can bump the `uses:` SHA without `rig-ref`,
+   and the two drift apart. Bump both together, by hand, to a reviewed
+   commit.
+
+   ```yaml
+   # .github/dependabot.yml
+   version: 2
+   updates:
+     - package-ecosystem: github-actions
+       directory: /
+       schedule:
+         interval: weekly
+       ignore:
+         - dependency-name: "curvelogic/curve-rig*"
+   ```
+
+   If the member already has a `github-actions` entry, add only the
+   `ignore:` item to it.
+
+3. Add the dispatcher at `.github/workflows/beads-inbox.yml`. It names the
    relay workflow by file name; change `beads-relay.yml` if yours differs.
 
    ```yaml
@@ -344,15 +369,18 @@ delete branches; whoever owns the repository deletes abandoned ones.
    ```
 
    It has no checkout and no secrets, and passes event values through the
-   environment, never into the script. Both files take effect once they are
-   on the default branch, merged together in one PR.
+   environment, never into the script. Both workflow files take effect once
+   they are on the default branch, merged together in one PR.
 
-3. Keep other push-triggered workflows off inbox branches. Every inbox
-   branch carries the default branch's workflows, so an unfiltered
-   `on: push` (CI, say) also runs on each one. Add
-   `branches-ignore: ["beads-inbox/**"]` to those.
+4. Keep other push-triggered workflows off inbox branches. Every inbox
+   branch carries the default branch's workflows, so an `on: push` with no
+   branch filter (CI, say) also runs on each one. Add
+   `branches-ignore: ["beads-inbox/**"]` to those. A `push` trigger that
+   already has a `branches:` filter cannot also take `branches-ignore:`;
+   if its patterns match inbox branches (`**`, say), add
+   `"!beads-inbox/**"` as its last pattern instead.
 
-4. Point the member's `CLAUDE.md` at the `rig-relay` skill
+5. Point the member's `CLAUDE.md` at the `rig-relay` skill
    (`templates/CLAUDE.md` does).
 
 ### Switching from the old inbox route
