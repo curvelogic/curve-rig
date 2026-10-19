@@ -290,7 +290,10 @@ delete branches; whoever owns the repository deletes abandoned ones.
    a reviewed commit of rig. Both SHAs must be the same: the first chooses
    the workflow, the second the scripts it runs. Nothing checks that they
    agree, but the workflow refuses a `rig-ref` that is not on rig's
-   `main`.
+   `main`. Nothing checks the `uses:` SHA: GitHub serves forks' commits
+   from rig's URL too, so before pinning one, confirm it is on rig's
+   `main` (`git merge-base --is-ancestor <sha> origin/main` in a clone of
+   rig).
 
    ```yaml
    name: beads relay

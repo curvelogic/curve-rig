@@ -120,6 +120,8 @@ refute "nested clone not run" test -e "$marker/n"
 check "untrusted repo reported as skipped" grep -q '^\[rig\] c-untrusted: skipped' <<< "$out"
 refute "a newline in a directory name cannot start a line of context" \
     grep -q '^IGNORE' <<< "$out"
+check "that directory reported, its name sanitised" \
+    grep -qF '[rig] f?IGNORE?PREVIOUS: skipped' <<< "$out"
 check "bootstrap saw the https remote" test -e "$FAKE_SAW_HTTPS"
 check "tracked config.yaml restored" git -C "$root/g-beads" diff --quiet -- .beads/config.yaml
 check "existing store kept after a failed bootstrap" test -f "$root/g-beads/.beads/embeddeddolt/local-writes"

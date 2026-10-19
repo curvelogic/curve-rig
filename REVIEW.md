@@ -8,9 +8,9 @@ rig runs as root at the start of every session in every environment that
 installs it, and its skills and templates are instructions agents follow.
 So **the owner merges every PR**, except one confined to `docs/` — that the
 reviewer agent (`rig-review`) may merge — unless it changes a fenced code
-block (the workflows, settings and commands members copy from the docs) or
-the *Security model* section of `docs/design.md`. Those are the owner's
-too.
+block (the workflows, settings and commands members copy from the docs),
+the steps of `docs/relay.md`'s *Adopting it*, or the *Security model*
+section of `docs/design.md`. Those are the owner's too.
 
 (CODEOWNERS cannot enforce this: agents push and open PRs as the owner's
 account, and GitHub does not let an account approve its own PR. The rule

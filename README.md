@@ -52,10 +52,11 @@ RIG_REF=<full commit SHA>
 RIG_HOME="$HOME/.local/share/curve-rig"
 git init -q "$RIG_HOME"
 git -C "$RIG_HOME" fetch -q --depth 1 https://github.com/curvelogic/curve-rig "$RIG_REF"
-git -C "$RIG_HOME" checkout -q FETCH_HEAD
-# GitHub serves forks' commits from this URL too: insist on one on main.
+# GitHub serves forks' commits from this URL too: check out only one on main.
 git -C "$RIG_HOME" fetch -q https://github.com/curvelogic/curve-rig main
-git -C "$RIG_HOME" merge-base --is-ancestor "$RIG_REF" FETCH_HEAD || exit 1
+git -C "$RIG_HOME" merge-base --is-ancestor "$RIG_REF" FETCH_HEAD ||
+    { echo "RIG_REF $RIG_REF is not on curve-rig's main; not installed" >&2; exit 1; }
+git -C "$RIG_HOME" checkout -q "$RIG_REF"
 "$RIG_HOME/bin/rig-install" --trusted-owners acme
 ```
 
