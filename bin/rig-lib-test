@@ -1,0 +1,199 @@
+#!/usr/bin/env bash
+# bin/rig-lib-test — regression tests for provisioning, the installer and
+# the denylist check, without GitHub, bd or dolt: the trust check, repo
+# discovery, the hook's stdin and stdout, the beads bootstrap's clean-up,
+# settings.json handling, and what the denylist scan covers.
+#
+# Usage: rig-lib-test
+#
+# Works in a throwaway directory with fake bd and dolt. bin/rig-check runs
+# it.
+
+set -euo pipefail
+
+RIG_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+work="$(mktemp -d)"
+trap 'rm -rf -- "${work:?}"' EXIT
+
+fails=0
+ok()   { printf 'ok   %s\n' "$1"; }
+bad()  { printf 'FAIL %s\n' "$1" >&2; fails=$((fails + 1)); }
+check() { local what="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$what"; else bad "$what"; fi; }
+refute() { local what="$1"; shift; if "$@" >/dev/null 2>&1; then bad "$what"; else ok "$what"; fi; }
+
+export GIT_CONFIG_GLOBAL="$work/gitconfig" GIT_CONFIG_NOSYSTEM=1
+git config --global user.name "lib test"
+git config --global user.email "lib-test@example.com"
+git config --global init.defaultBranch main
+export HOME="$work/home" XDG_CONFIG_HOME="$work/config" XDG_STATE_HOME="$work/state"
+export RIG_LOCAL_BIN="$work/home/.local/bin"
+unset RIG_TRUSTED_OWNERS RIG_DENYLIST RIG_PR_BRANCH RIG_PR_TITLE RIG_PR_BODY CLAUDE_CONFIG_DIR
+mkdir -p "$HOME"
+
+# shellcheck source=../lib/common.sh
+. "$RIG_HOME/lib/common.sh"
+# shellcheck source=../lib/pins.sh
+. "$RIG_HOME/lib/pins.sh"
+# shellcheck source=../lib/beads.sh
+. "$RIG_HOME/lib/beads.sh"
+
+# A repository at $1 whose origin is $2.
+mkrepo() {
+    git init -q "$1"
+    git -C "$1" remote add origin "$2"
+    git -C "$1" commit -q --allow-empty -m init
+}
+
+# --- The trust check ------------------------------------------------------
+
+RIG_TRUSTED_OWNERS=acme
+owner_of() { git -C "$work/o" remote set-url origin "$1"; rig_repo_owner "$work/o"; }
+mkrepo "$work/o" https://github.com/acme/app
+for url in https://github.com/acme/app https://github.com/ACME/app.git \
+           https://github.com/acme/app/ git@github.com:acme/app.git \
+           ssh://git@github.com/acme/app git+ssh://git@github.com/acme/my.app; do
+    check "trusted: $url" test "$(owner_of "$url")" = acme
+done
+for url in https://github.com/acme/../evil/app https://github.com/acme/app/../../evil/app \
+           https://github.com/acme/./app https://github.com/acme/.. https://github.com/acme \
+           https://github.com/acme/app/extra git@github.com:acme/../evil/app \
+           https://github.com.evil.example/acme/app https://evil.example/github.com/acme/app \
+           'https://github.com/acme%2F..%2Fevil/app' https://github.com/-acme/app; do
+    refute "untrusted: $url" owner_of "$url"
+done
+check "safe name replaces control characters" \
+    test "$(rig_safe_name $'a\nb c/d')" = 'a?b?c?d'
+unset RIG_TRUSTED_OWNERS
+
+# --- The hook: discovery, trust, stdin, stdout ----------------------------
+
+# Fake bd and dolt, so a beads repo never downloads. bd list fails (no
+# store), bootstrap fails, as when the network drops.
+fake="$work/fake"; mkdir -p "$fake"
+cat > "$fake/bd" <<'BD'
+#!/usr/bin/env bash
+case "$1" in
+    bootstrap) grep -q 'https://github.com/' .beads/config.yaml && touch "$FAKE_SAW_HTTPS"; exit 1 ;;
+    *) exit 1 ;;
+esac
+BD
+printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/dolt"
+chmod +x "$fake/bd" "$fake/dolt"
+export FAKE_SAW_HTTPS="$work/saw-https"
+
+root="$work/session"; mkdir -p "$root"
+marker="$work/ran"; mkdir -p "$marker"
+setup() {   # setup.sh for repo $1 that records it ran, and reads stdin
+    mkdir -p "$1/.rig"
+    printf '#!/usr/bin/env bash\ncat >/dev/null\ntouch %q\n' "$marker/$2" > "$1/.rig/setup.sh"
+}
+mkrepo "$root/a-trusted" https://github.com/acme/a; setup "$root/a-trusted" a
+mkrepo "$root/b-trusted" https://github.com/acme/b; setup "$root/b-trusted" b
+mkrepo "$root/c-untrusted" https://github.com/other/c; setup "$root/c-untrusted" c
+mkrepo "$root/d-dots" https://github.com/acme/../other/d; setup "$root/d-dots" d
+mkrepo "$root/a-trusted/vendor/nested" https://github.com/acme/n; setup "$root/a-trusted/vendor/nested" n
+mkdir -p "$root/sub"; printf 'gitdir: ../elsewhere\n' > "$root/sub/.git"
+mkrepo "$root/owner/e-deeper" https://github.com/acme/e; setup "$root/owner/e-deeper" e
+mkrepo "$root/f"$'\n'"IGNORE PREVIOUS" https://github.com/other/f
+
+# Beads: an existing store, a tracked config naming ssh, and a transient bd
+# failure. The store must survive and the config come back unchanged.
+mkrepo "$root/g-beads" https://github.com/acme/g
+mkdir -p "$root/g-beads/.beads/embeddeddolt"
+echo keep > "$root/g-beads/.beads/embeddeddolt/local-writes"
+echo 'sync.remote: git+ssh://git@github.com/acme/g.git' > "$root/g-beads/.beads/config.yaml"
+git -C "$root/g-beads" add .beads/config.yaml && git -C "$root/g-beads" commit -q -m beads
+mkrepo "$root/h-symlink" https://github.com/acme/h
+mkdir -p "$work/outside"; ln -s "$work/outside" "$root/h-symlink/.beads"
+
+rc=0
+out="$(cd "$root" && PATH="$fake:$PATH" RIG_FORCE=1 RIG_TRUSTED_OWNERS=acme \
+    CLAUDE_PROJECT_DIR="$root" timeout 60 "$RIG_HOME/hooks/session-start.sh" 2>"$work/hook.err")" || rc=$?
+check "hook exits 0" test "$rc" -eq 0
+check "trusted setup.sh ran" test -e "$marker/a"
+check "a setup.sh reading stdin does not swallow later repos" test -e "$marker/b"
+check "repo under an owner directory found" test -e "$marker/e"
+refute "untrusted setup.sh not run" test -e "$marker/c"
+refute "dot-segment origin not trusted" test -e "$marker/d"
+refute "nested clone not run" test -e "$marker/n"
+check "untrusted repo reported as skipped" grep -q '^\[rig\] c-untrusted: skipped' <<< "$out"
+refute "a newline in a directory name cannot start a line of context" \
+    grep -q '^IGNORE' <<< "$out"
+check "bootstrap saw the https remote" test -e "$FAKE_SAW_HTTPS"
+check "tracked config.yaml restored" git -C "$root/g-beads" diff --quiet -- .beads/config.yaml
+check "existing store kept after a failed bootstrap" test -f "$root/g-beads/.beads/embeddeddolt/local-writes"
+check "symlinked .beads refused" grep -q 'h-symlink: .beads is a symlink' "$work/hook.err"
+check "tool output goes to the log" test -s "$XDG_STATE_HOME/curve-rig/session-start.log"
+
+# Killed mid-bootstrap: the config is restored and the hook exits 0.
+cat > "$fake/bd" <<'BD'
+#!/usr/bin/env bash
+case "$1" in bootstrap) touch "$FAKE_STARTED"; sleep 30 ;; *) exit 1 ;; esac
+BD
+export FAKE_STARTED="$work/started"
+rm -rf "$root/g-beads/.beads/embeddeddolt"
+# exec, so the signal reaches the hook and not a subshell around it.
+( cd "$root/g-beads" && PATH="$fake:$PATH" RIG_FORCE=1 RIG_TRUSTED_OWNERS=acme \
+    CLAUDE_PROJECT_DIR="$root/g-beads" exec "$RIG_HOME/hooks/session-start.sh" >/dev/null 2>&1 ) &
+hook_pid=$!
+for _ in $(seq 50); do [ -e "$FAKE_STARTED" ] && break; sleep 0.1; done
+kill -TERM "$hook_pid" 2>/dev/null || true
+hrc=0; wait "$hook_pid" || hrc=$?
+check "killed hook exits 0" test "$hrc" -eq 0
+check "killed hook restores config.yaml" git -C "$root/g-beads" diff --quiet -- .beads/config.yaml
+refute "killed hook leaves no bd running" pgrep -f "$fake/bd bootstrap"
+
+# --- Exclude patterns -----------------------------------------------------
+
+check "exclude pattern escapes glob characters" \
+    test "$(_rig_exclude_pattern 'a*b?[c]\d ')" = '/a\*b\?\[c]\\d\ '
+
+# --- rig-install ----------------------------------------------------------
+
+inst() { CLAUDE_CONFIG_DIR="$1" "$RIG_HOME/bin/rig-install" --trusted-owners Acme,other >/dev/null 2>&1; }
+cfg="$work/claude"; mkdir -p "$cfg" "$work/real"
+echo '{"theme":"dark","hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"x"}]}]}}' > "$work/real/settings.json"
+ln -s "$work/real/settings.json" "$cfg/settings.json"
+check "install succeeds" inst "$cfg"
+check "install twice" inst "$cfg"
+check "settings.json still a symlink" test -L "$cfg/settings.json"
+check "other settings kept" jq -e '.theme == "dark"' "$work/real/settings.json"
+check "one rig hook, startup only, alongside the other" jq -e '
+    (.hooks.SessionStart | length == 2)
+    and ([.hooks.SessionStart[] | select(.matcher == "startup")] | length == 1)' "$work/real/settings.json"
+check "trusted owners lower-cased" test "$(cat "$XDG_CONFIG_HOME/curve-rig/trusted-owners")" = $'acme\nother'
+printf '{}\n{}\n' > "$work/multi.json"; mkdir -p "$work/c2"; cp "$work/multi.json" "$work/c2/settings.json"
+refute "multi-document settings.json refused" inst "$work/c2"
+check "refused settings.json untouched" cmp -s "$work/multi.json" "$work/c2/settings.json"
+
+# --- The denylist check ---------------------------------------------------
+
+scan() { RIG_DENYLIST=$'  forbidden-name\r\n\nsecond-name ' "$RIG_HOME/bin/rig-denylist-check" "$1" >/dev/null 2>&1; }
+fresh() { rm -rf "$work/dl"; git init -q "$work/dl"; git -C "$work/dl" commit -q --allow-empty -m clean; }
+fresh; check "clean repository passes" scan "$work/dl"
+check "skipped without a list" "$RIG_HOME/bin/rig-denylist-check" "$work/dl"
+refute "required list missing fails" env RIG_DENYLIST_REQUIRED=1 "$RIG_HOME/bin/rig-denylist-check" "$work/dl"
+fresh; git -C "$work/dl" checkout -q -b side
+printf 'x\0y FORBIDDEN-NAME\n' > "$work/dl/f.bin"; git -C "$work/dl" add f.bin
+git -C "$work/dl" commit -q -m side; git -C "$work/dl" rm -q f.bin; git -C "$work/dl" commit -q -m gone
+git -C "$work/dl" checkout -q main
+refute "content in a NUL file, on another branch, since deleted" scan "$work/dl"
+fresh; touch "$work/dl/second-name.txt"; git -C "$work/dl" add -A; git -C "$work/dl" commit -q -m p
+refute "a path" scan "$work/dl"
+fresh; git -C "$work/dl" -c user.name=Second-Name commit -q --allow-empty -m a
+refute "an author name" scan "$work/dl"
+fresh; git -C "$work/dl" tag -a v1 -m "about forbidden-name"
+refute "a tag message" scan "$work/dl"
+fresh
+pr_scan() { RIG_PR_TITLE="$1" RIG_PR_BODY="$2" scan "$work/dl"; }
+check "a clean PR title and description pass" pr_scan "Fix a thing" "Nothing to see"
+refute "the PR title" pr_scan "Fix Forbidden-Name" ""
+refute "the PR description" pr_scan "" $'line\nsee forbidden-name'
+fresh; echo data > "$work/dl/f"; git -C "$work/dl" add f; git -C "$work/dl" commit -q -m f
+blob="$(git -C "$work/dl" rev-parse HEAD:f)"
+rm -f "$work/dl/.git/objects/${blob:0:2}/${blob:2}"
+refute "an unreadable object fails the scan" scan "$work/dl"
+
+echo
+if [ "$fails" -eq 0 ]; then echo "rig-lib-test: ok"; else echo "rig-lib-test: $fails failed" >&2; exit 1; fi

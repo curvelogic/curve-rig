@@ -22,6 +22,8 @@ Criteria applied to every PR, on top of green CI.
 |---|---|
 | <path or kind of change> | second independent review |
 | <path or kind of change> | the owner merges |
+| `.github/`, `.beads/` configuration, `.claude/`, `.rig/` | the owner merges |
+| A PR from outside (a fork, or another account's commits) | the owner merges |
 
 <!-- Optional: a routine class of change to CI that gates merging, which
      rig-review may merge after review. Without a row like this, every such

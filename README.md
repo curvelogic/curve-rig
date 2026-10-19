@@ -53,6 +53,9 @@ RIG_HOME="$HOME/.local/share/curve-rig"
 git init -q "$RIG_HOME"
 git -C "$RIG_HOME" fetch -q --depth 1 https://github.com/curvelogic/curve-rig "$RIG_REF"
 git -C "$RIG_HOME" checkout -q FETCH_HEAD
+# GitHub serves forks' commits from this URL too: insist on one on main.
+git -C "$RIG_HOME" fetch -q https://github.com/curvelogic/curve-rig main
+git -C "$RIG_HOME" merge-base --is-ancestor "$RIG_REF" FETCH_HEAD || exit 1
 "$RIG_HOME/bin/rig-install" --trusted-owners acme
 ```
 

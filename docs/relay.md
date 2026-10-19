@@ -288,8 +288,9 @@ delete branches; whoever owns the repository deletes abandoned ones.
 
 1. Add the relay workflow at `.github/workflows/beads-relay.yml`, pinned to
    a reviewed commit of rig. Both SHAs must be the same: the first chooses
-   the workflow, the second the scripts it runs, and nothing checks that
-   they agree.
+   the workflow, the second the scripts it runs. Nothing checks that they
+   agree, but the workflow refuses a `rig-ref` that is not on rig's
+   `main`.
 
    ```yaml
    name: beads relay

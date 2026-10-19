@@ -165,7 +165,9 @@ rig_trusted_owners() {
 }
 
 # The GitHub owner of a repository's origin, lower-cased; fails for an
-# origin that is not on github.com.
+# origin that is not exactly github.com/<owner>/<repo>. The path is matched
+# whole: git and curl resolve dot segments, so github.com/acme/../evil/x
+# fetches evil/x, and a prefix check would call it acme's.
 rig_repo_owner() {
     local url path
     url="$(git -C "$1" remote get-url origin 2>/dev/null)" || return 1
@@ -176,9 +178,15 @@ rig_repo_owner() {
         git+ssh://git@github.com/*)  path="${url#git+ssh://git@github.com/}" ;;
         *) return 1 ;;
     esac
-    case "$path" in */*) ;; *) return 1 ;; esac
-    printf '%s\n' "${path%%/*}" | tr '[:upper:]' '[:lower:]'
+    [[ "$path" =~ ^([A-Za-z0-9][A-Za-z0-9-]{0,38})/([A-Za-z0-9._-]+)/?$ ]] || return 1
+    case "${BASH_REMATCH[2]}" in .|..|.git|..git) return 1 ;; esac
+    printf '%s\n' "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]'
 }
+
+# A name safe to print into agent context: anything but letters, digits,
+# '.', '_' and '-' becomes '?'. Directory names are chosen by whoever cloned
+# them, and the hook's stdout is read by the agent.
+rig_safe_name() { printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '?'; }
 
 # True when the repository's origin owner is in the trusted list. Code from
 # any other repository — something an agent cloned to read, a vendored

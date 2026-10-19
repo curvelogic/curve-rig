@@ -63,7 +63,7 @@ _rig_member_setup() {
 
 beads_ready=""
 for repo in "${repos[@]}"; do
-    name="$(basename "$repo")"
+    name="$(rig_safe_name "$(basename "$repo")")"
 
     if ! rig_repo_trusted "$repo"; then
         rig_log "$name: skipped (origin owner not trusted)"

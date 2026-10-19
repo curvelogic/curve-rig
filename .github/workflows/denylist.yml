@@ -5,12 +5,14 @@
 # branch can read it. PRs are scanned via pull_request_target: the workflow
 # and the scanner both come from the base branch, and the PR's commits are
 # fetched only as data for git to read — nothing from the PR is executed.
+# The PR's title and description are public too: they are scanned on every
+# edit, passed through the environment, never into the script.
 
 name: Denylist
 
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main]
 
@@ -41,4 +43,6 @@ jobs:
           RIG_DENYLIST: ${{ secrets.RIG_DENYLIST }}
           RIG_DENYLIST_REQUIRED: "1"
           RIG_PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          RIG_PR_TITLE: ${{ github.event.pull_request.title }}
+          RIG_PR_BODY: ${{ github.event.pull_request.body }}
         run: scanner/bin/rig-denylist-check target

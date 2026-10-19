@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # bin/rig-denylist-check — fail if any private name appears anywhere that
 # will be public: file contents and paths across all history, commit
-# metadata and messages, ref names, tag messages, and the PR branch name.
+# metadata and messages, ref names, tag messages, and the PR's branch name,
+# title and description.
 #
 # Usage: rig-denylist-check [REPO_DIR]     (default: this checkout)
 #
@@ -45,17 +46,29 @@ report() { echo "denylisted name: $*"; status=1; }
 # match): read the whole input, discard the output.
 matches() { grep -a -i -F -f "$patterns" >/dev/null; }
 
-mapfile -t revs < <(g rev-list --all)
+# A scan that cannot run must fail, never read as clean: no `|| true` and
+# no process substitution, whose failures set -e does not see.
+revlist="$(g rev-list --all)"
+mapfile -t revs <<< "$revlist"
+[ -n "$revlist" ] || revs=()
 
-# 1. File contents in every commit reachable from any ref.
-if [ "${#revs[@]}" -gt 0 ]; then
-    hits="$(printf '%s\n' "${revs[@]}" \
-        | xargs -r git -C "$target" grep -a -i -F -l -f "$patterns" 2>/dev/null || true)"
-    if [ -n "$hits" ]; then
-        while IFS= read -r c; do report "file content in commit $c"; done \
-            < <(cut -d: -f1 <<< "$hits" | sort -u)
+# Every reachable object must be present: git grep skips a blob it cannot
+# read, says so on stderr, and still exits 1 ("no match").
+g fsck --connectivity-only --no-dangling --no-progress >/dev/null 2>&1 || {
+    echo "rig-denylist-check: the repository is missing objects; cannot scan" >&2; exit 2; }
+
+# 1. File contents in every commit reachable from any ref. git grep exits 1
+# for no match and above 1 for an error; anything on stderr is an error too.
+errs="$(mktemp)"
+trap 'rm -f "$patterns" "$errs"' EXIT
+for c in "${revs[@]}"; do
+    rc=0
+    g grep -q -a -i -F -f "$patterns" "$c" -- 2>"$errs" || rc=$?
+    if [ "$rc" -gt 1 ] || [ -s "$errs" ]; then
+        echo "rig-denylist-check: could not scan commit $c" >&2; exit 2
     fi
-fi
+    [ "$rc" -eq 1 ] || report "file content in commit $c"
+done
 
 # 2. File paths anywhere in history (including merges).
 paths="$(g log --all -m --format= --name-only -z | tr '\0' '\n')"
@@ -75,9 +88,15 @@ if matches <<< "$refs"; then report "a ref name"; fi
 tags="$(g for-each-ref refs/tags --format='%(taggername)%0a%(taggeremail)%0a%(contents)')"
 if matches <<< "$tags"; then report "a tag's tagger or message"; fi
 
-# 5. The PR's branch name, passed in by CI.
+# 5. The PR's branch name, title and description, passed in by CI.
 if [ -n "${RIG_PR_BRANCH:-}" ] && matches <<< "$RIG_PR_BRANCH"; then
     report "the branch name"
+fi
+if [ -n "${RIG_PR_TITLE:-}" ] && matches <<< "$RIG_PR_TITLE"; then
+    report "the PR title"
+fi
+if [ -n "${RIG_PR_BODY:-}" ] && matches <<< "$RIG_PR_BODY"; then
+    report "the PR description"
 fi
 
 [ "$status" -eq 0 ] && echo "rig-denylist-check: ok (${#revs[@]} commits)"

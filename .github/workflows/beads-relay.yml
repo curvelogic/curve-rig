@@ -104,7 +104,16 @@ jobs:
           ref: ${{ inputs.rig-ref }}
           path: rig
           token: ${{ secrets.rig-token || github.token }}
+          fetch-depth: 0
           persist-credentials: false
+
+      # GitHub serves a fork's commits from the upstream repository too, so
+      # a SHA that checks out is not necessarily rig's. Run only a commit on
+      # rig's main.
+      - name: Check rig-ref is on rig's main
+        run: |
+          git -C rig merge-base --is-ancestor HEAD refs/remotes/origin/main ||
+            { echo "::error::rig-ref is not a commit on curve-rig's main"; exit 1; }
 
       # bd pushes refs/dolt/data from a git repository of its own, which does
       # not see a checkout's credentials; a global rewrite reaches it, and

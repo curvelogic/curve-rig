@@ -152,29 +152,30 @@ _rig_bd_bootstrap() {
 # On failure only the store directories this run created are removed; an
 # existing store may hold local writes not yet relayed.
 rig_bootstrap_beads() {
-    local repo="$1" beads head_before head_after before_file t d status=0
+    local repo="$1" beads head_before head_after before_file t d status=0 name
     local -a pre_existing=()
     beads="$repo/.beads"
+    name="$(rig_safe_name "$(basename "$repo")")"
     [ -d "$beads" ] || return 0
 
     if [ -L "$beads" ]; then
-        rig_warn "$(basename "$repo"): .beads is a symlink — refusing"
+        rig_warn "$name: .beads is a symlink — refusing"
         return 1
     fi
     case "$(cd "$beads" && pwd -P)/" in
         "$(cd "$repo" && pwd -P)"/*) ;;
-        *) rig_warn "$(basename "$repo"): .beads resolves outside the repo — refusing"; return 1 ;;
+        *) rig_warn "$name: .beads resolves outside the repo — refusing"; return 1 ;;
     esac
     chmod 700 "$beads" 2>/dev/null || true
 
     if _rig_beads_store_ok "$repo"; then
-        rig_log "$(basename "$repo"): beads store already materialised"
+        rig_log "$name: beads store already materialised"
         return 0
     fi
 
     t="$(rig_step_timeout 600)"
     if [ "$t" -le 0 ]; then
-        rig_warn "$(basename "$repo"): no time left to bootstrap beads"
+        rig_warn "$name: no time left to bootstrap beads"
         return 1
     fi
 
@@ -198,12 +199,12 @@ rig_bootstrap_beads() {
         case "$(git -C "$repo" log -1 --format=%s 2>/dev/null)" in
             "bd init"*|"bd bootstrap"*)
                 git -C "$repo" reset -q --mixed "$head_before" 2>/dev/null || true ;;
-            *) rig_warn "$(basename "$repo"): HEAD moved during bootstrap; left alone" ;;
+            *) rig_warn "$name: HEAD moved during bootstrap; left alone" ;;
         esac
     fi
 
     if [ "$status" -eq 0 ] && _rig_beads_store_ok "$repo"; then
-        rig_log "$(basename "$repo"): beads store materialised, $(rig_beads_open_count "$repo") open issues"
+        rig_log "$name: beads store materialised, $(rig_beads_open_count "$repo") open issues"
         return 0
     fi
     # An empty store would read as an empty tracker rather than a broken one,
@@ -211,7 +212,7 @@ rig_bootstrap_beads() {
     for d in embeddeddolt dolt proxieddb; do
         [[ " ${pre_existing[*]} " == *" $d "* ]] || rm -rf "${beads:?}/$d"
     done
-    rig_warn "$(basename "$repo"): beads bootstrap failed (see $RIG_LOG)." \
+    rig_warn "$name: beads bootstrap failed (see $RIG_LOG)." \
         "Do NOT seed from .beads/issues.jsonl."
     return 1
 }

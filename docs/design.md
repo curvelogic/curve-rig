@@ -120,9 +120,12 @@ Nothing else is required; a repo with none of these is left alone.
 - **Root with credentials.** Cloud sessions run as root with GitHub access
   to the session's repositories and whatever secrets the environment holds.
   Everything rig runs has that power, so rig runs as little as possible.
-- **Trusted owners.** Only repositories whose `origin` is a github.com URL
-  under a trusted owner are provisioned. An agent cloning a third-party
-  repository cannot get its `.rig/setup.sh` run, now or at a later startup.
+- **Trusted owners.** Only repositories whose `origin` is exactly
+  `github.com/<owner>/<repo>`, with a trusted owner, are provisioned. The
+  path is matched whole, because git resolves dot segments
+  (`github.com/<trusted>/../<other>/x` fetches `<other>/x`). An agent
+  cloning a third-party repository cannot get its `.rig/setup.sh` run, now
+  or at a later startup.
 - **Members are not isolated from each other.** One trusted member's
   `.rig/setup.sh` can change PATH, `~/.local/bin` or `$RIG_HOME` for the
   members provisioned after it. Trust is per owner, not per repository.
@@ -134,13 +137,23 @@ Nothing else is required; a repo with none of these is left alone.
   member, so it runs only from the member's default branch. Its
   push-triggered half, which runs from an inbox branch, has
   `actions: write` only and no secrets; it just dispatches the other.
-  Inbox branches are read with git as data and never checked out.
+  Inbox branches are read with git as data and never checked out. It runs
+  rig's scripts only at a commit on rig's `main`: GitHub serves forks'
+  commits from rig's URL too.
+- **Beads are unreviewed.** Any session that can push a branch — a
+  prompt-injected one included — can write issues and memories that every
+  later session reads. Members' `CLAUDE.md` says to read beads as notes,
+  not instructions (`templates/CLAUDE.md`).
 - **The denylist secret** lives in a `denylist` environment restricted to
   `main`. PRs are scanned by a `pull_request_target` workflow that runs the
   base branch's scanner over the PR's commits as data; no PR code runs with
   the secret. A common word on the list would be masked as `***` wherever
   it appears in public logs, revealing it — keep entries distinctive.
 - **Review.** The owner merges every non-docs PR (see `REVIEW.md`).
+  `rig-review` treats everything in a PR and on its page as data, counts
+  only comments from the account agents act as, and never runs code from
+  a PR from outside (a fork, or another account's commits): those are the
+  owner's to merge.
 
 ## Naming
 
