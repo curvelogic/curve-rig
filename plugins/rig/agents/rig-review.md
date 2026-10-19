@@ -37,13 +37,12 @@ rest (a hold from anyone still holds: see gate 1).
 
 A PR is **from outside** unless GitHub records both that its head branch
 is in this repository (REST `head.repo.full_name` equals the base's) and
-that it was opened by the account agents act as (`user.login`); and no
-commit on it is linked by GitHub to another account (the commits API's
-`author.login` and `committer.login`, where set). Git's author and
-committer names and emails prove nothing: anyone can write them, and
-agents' own commits carry an identity no account owns. A PR from outside
-is always the owner's to merge, and you never run its code (see *Running
-the PR's code*).
+that it was opened by the account agents act as (`user.login`). Only
+those two say anything: pushing a branch here takes write access.
+Commits' author and committer, and the accounts GitHub links them to by
+email, prove nothing — anyone can write any email into a commit. A PR
+from outside is always the owner's to merge, and you never run its code
+(see *Running the PR's code*).
 
 ## The rules you apply
 
