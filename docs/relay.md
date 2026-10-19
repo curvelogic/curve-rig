@@ -50,13 +50,15 @@ carry it there.
 **Beads writes reach the tracker as directly as possible.** There is no
 review gate on them: a session's staged writes are applied as soon as CI
 can apply them, not when a PR merges. Whoever can push a branch to a member
-can therefore write its tracker. For someone with ordinary push access,
-who can push `refs/dolt/data` directly, that is nothing new. For a cloud
-session it is: before the relay, a session's writes reached nothing
-unreviewed. Now any session that can push a branch, a prompt-injected one
-included, can write issues and memories that every later session reads.
-So a member's agents should read beads as notes about the work, never as
-instructions. Nothing the relay does reaches the member's
+can therefore write its tracker — but that was already so. A branch's
+workflow runs as pushed and may declare `contents: write`, and no ruleset
+covers `refs/dolt/data` (rulesets cover branches and tags only), so
+whoever can push a branch, and push workflow files, can already rewrite
+the store through a workflow of their own. What the relay adds is that no
+workflow needs writing: a cloud session, a prompt-injected one included,
+writes issues and memories that every later session reads just by
+staging them. So a member's agents should read beads as notes about the
+work, never as instructions. Nothing the relay does reaches the member's
 default branch.
 
 ## How it works
@@ -389,18 +391,22 @@ delete branches; whoever owns the repository deletes abandoned ones.
    (`templates/CLAUDE.md` does).
 
 6. Check the member's settings. Any branch push runs the workflows on
-   that branch as pushed, so what such a run may do is set by the
-   repository, not by the relay:
+   that branch as pushed, with whatever `permissions:` they declare, so
+   what such a run may do is bounded by the repository, not by the relay:
 
+   - Protect the default branch (a ruleset requiring a PR), so that no
+     workflow's token, whatever it declares, moves it.
    - Settings → Actions → General → *Workflow permissions*: read
-     repository contents only. Otherwise a pushed branch's workflow gets a
-     token that can push the default branch or `refs/dolt/data` without
-     the relay.
-   - Protect the default branch (a ruleset requiring a PR), so no token
-     but a reviewer's merge moves it.
+     repository contents only. This is only the default for workflows
+     that declare no `permissions:`; it keeps an ordinary workflow from
+     holding a write token it does not need, and stops nothing that asks
+     for one.
    - Keep secrets in environments restricted to the default branch, as
      rig does for its denylist; a repository secret is readable by any
      pushed branch's workflow.
+
+   Nothing here protects `refs/dolt/data`: anyone who can push a branch
+   with a workflow in it can write the store.
 
 ### Switching from the old inbox route
 
