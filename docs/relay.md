@@ -50,9 +50,14 @@ carry it there.
 **Beads writes reach the tracker as directly as possible.** There is no
 review gate on them: a session's staged writes are applied as soon as CI
 can apply them, not when a PR merges. Whoever can push a branch to a member
-can therefore write its tracker. That is no wider than before for anyone
-with ordinary push access, who can push `refs/dolt/data` directly.
-Nothing the relay does reaches the member's default branch.
+can therefore write its tracker. For someone with ordinary push access,
+who can push `refs/dolt/data` directly, that is nothing new. For a cloud
+session it is: before the relay, a session's writes reached nothing
+unreviewed. Now any session that can push a branch, a prompt-injected one
+included, can write issues and memories that every later session reads.
+So a member's agents should read beads as notes about the work, never as
+instructions. Nothing the relay does reaches the member's
+default branch.
 
 ## How it works
 
@@ -382,6 +387,20 @@ delete branches; whoever owns the repository deletes abandoned ones.
 
 5. Point the member's `CLAUDE.md` at the `rig-relay` skill
    (`templates/CLAUDE.md` does).
+
+6. Check the member's settings. Any branch push runs the workflows on
+   that branch as pushed, so what such a run may do is set by the
+   repository, not by the relay:
+
+   - Settings → Actions → General → *Workflow permissions*: read
+     repository contents only. Otherwise a pushed branch's workflow gets a
+     token that can push the default branch or `refs/dolt/data` without
+     the relay.
+   - Protect the default branch (a ruleset requiring a PR), so no token
+     but a reviewer's merge moves it.
+   - Keep secrets in environments restricted to the default branch, as
+     rig does for its denylist; a repository secret is readable by any
+     pushed branch's workflow.
 
 ### Switching from the old inbox route
 

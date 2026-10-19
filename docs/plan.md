@@ -52,6 +52,8 @@ org-level tracker. rig has no beads store of its own (see `CLAUDE.md`).
   owners, `startup` matcher, pinned and digest-checked downloads, deadline
   and restore-on-kill, stdin isolation, safe exclude patterns, stricter
   denylist).
+- Second independent security review done, of `main` at `065cc39`; its
+  fixes are in one PR for the owner.
 
 ## Next
 
@@ -64,11 +66,12 @@ org-level tracker. rig has no beads store of its own (see `CLAUDE.md`).
    relay workflow its private-rig access (`docs/relay.md` → *Adopting
    it*).
 2. **Second member**, replacing its own copies of setup, relay and reviewer.
-3. **Second independent security review** of everything since the first
-   one, with the findings fixed.
-4. **Go public**: squash history to a single commit (removes session links
-   and stale branches), confirm the denylist scan is clean, make the
-   repository public, and tag a release.
+3. **Merge the second review's fixes.**
+4. **Go public**: squash history to a single commit, confirm the denylist
+   scan is clean, make the repository public, and tag a release. Squashing
+   clears `main`'s history only: every PR's commits stay reachable from
+   its `refs/pull/<n>/head`, and its title, description and comments stay
+   on its page, so those must be clean too.
 5. **Prove hands-off delivery**: point a fresh cloud environment's setup
    script at the release with `--trusted-owners` (README → *Using rig in a
    cloud environment*), start a session, and confirm the hook provisioned
