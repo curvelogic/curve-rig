@@ -394,8 +394,14 @@ delete branches; whoever owns the repository deletes abandoned ones.
    that branch as pushed, with whatever `permissions:` they declare, so
    what such a run may do is bounded by the repository, not by the relay:
 
-   - Protect the default branch (a ruleset requiring a PR), so that no
-     workflow's token, whatever it declares, moves it.
+   - Protect the default branch with a ruleset requiring a PR, its
+     checks, and at least one approval, with the owner's role allowed to
+     bypass, and leave *Allow GitHub Actions to create and approve pull
+     requests* off. A pushed branch's workflow can declare
+     `contents: write` and merge a ready PR through the API; with no
+     approval required, nothing stops it. The approval rule stops the
+     workflow's token, which cannot bypass, while the owner's account
+     (and agents acting as it) merges by bypass.
    - Settings → Actions → General → *Workflow permissions*: read
      repository contents only. This is only the default for workflows
      that declare no `permissions:`; it keeps an ordinary workflow from
