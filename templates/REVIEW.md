@@ -36,8 +36,9 @@ Criteria applied to every PR, on top of green CI.
      workflows and actions that are themselves the check stay the
      owner's, and so does any workflow holding write access or a secret
      (one with no `permissions:` counts as write): the class reaches only
-     workflows that declare read-only `permissions:` and use no secrets. To adopt it, move the row into the table above; if another
-     row also covers workflows (`.github/`, say), add "this class wins
+     workflows that declare read-only `permissions:` and use no secrets.
+     To adopt it, move the row into the table above; if another row also
+     covers workflows (`.github/`, say), add "this class wins
      over it" to this row, or the stricter row applies.
 
 | Only external actions' `uses:` refs change | agent-merged after review |

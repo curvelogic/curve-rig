@@ -158,10 +158,9 @@ the `refs/review/` ref, and `git worktree prune`.
 credentials. Before you run anything from the worktree — the check, a
 test, a build, a script, a tool that reads configuration from the tree —
 confirm the PR is not from outside (see *What is data*). For a PR from
-outside, run
-nothing from it: review by reading, take CI's results (which run without
-secrets) for gates 5 and 6, say so in your comment, and leave it for the
-owner.
+outside, run nothing from it: review by reading, take CI's results for
+gate 5, report gate 6 as unproven, say so in your comment, and leave it
+for the owner.
 
 **Exercising code that writes elsewhere.** Never let a review write to a
 shared remote, a deployment or a tracker. Run such code against copies
