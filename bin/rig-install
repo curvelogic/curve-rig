@@ -10,7 +10,10 @@
 #     (also settable later via RIG_TRUSTED_OWNERS);
 #   - registers hooks/session-start.sh as a user-level SessionStart hook
 #     (matcher "startup") in ~/.claude/settings.json, merging with what is
-#     there and writing through a symlinked settings file.
+#     there and writing through a symlinked settings file;
+#   - adds rig's attribution rule (templates/user-CLAUDE.md: no session
+#     links in commits or PR text) to ~/.claude/CLAUDE.md, between its
+#     markers, keeping everything else in the file.
 # Idempotent: re-running replaces rig's own entries and nothing else.
 #
 # RIG_HOME defaults to the checkout this script lives in.
@@ -30,7 +33,7 @@ while [ "$#" -gt 0 ]; do
     case "$1" in
         --trusted-owners) owners_arg="${2:-}"; shift 2 ;;
         --trusted-owners=*) owners_arg="${1#*=}"; shift ;;
-        -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) rig_warn "unknown argument: $1"; exit 2 ;;
     esac
 done
@@ -93,6 +96,35 @@ jq --arg hook "$HOOK" --arg home "$RIG_HOME" '
         + [ { matcher: "startup",
               hooks: [ { type: "command", command: ($hook | @sh), timeout: 900 } ] } ]
     )
+' "$target" > "$tmp"
+chmod --reference="$target" "$tmp" 2>/dev/null || true
+mv -f "$tmp" "$target"
+trap - EXIT
+
+# User-level CLAUDE.md: rig's block, between its markers, replaces any
+# earlier copy of the block in place, or is appended; the rest of the file
+# is kept byte for byte. Written through a symlink, replaced atomically.
+rule="$RIG_HOME/templates/user-CLAUDE.md"
+memory="$CLAUDE_DIR/CLAUDE.md"
+target="$(readlink -f -- "$memory" 2>/dev/null || printf '%s' "$memory")"
+begin='<!-- rig:attribution:begin'
+end='<!-- rig:attribution:end -->'
+[ -f "$target" ] || : > "$target"
+if [ "$(grep -c -- "^$begin" "$target")" != "$(grep -cxF -- "$end" "$target")" ] ||
+   [ "$(grep -c -- "^$begin" "$target")" -gt 1 ]; then
+    rig_warn "$target has unmatched or repeated rig markers; left untouched"
+    exit 1
+fi
+tmp="$(mktemp "$target.XXXXXX")"
+trap 'rm -f "$tmp"' EXIT
+awk -v begin="$begin" -v end="$end" -v rule="$rule" '
+    function block(  line) { while ((getline line < rule) > 0) print line; close(rule); done = 1 }
+    index($0, begin) == 1 { skip = 1; block(); next }
+    skip && $0 == end     { skip = 0; next }
+    !skip                 { print; n++ }
+    END {
+        if (!done) { if (n > 0) print ""; block() }
+    }
 ' "$target" > "$tmp"
 chmod --reference="$target" "$tmp" 2>/dev/null || true
 mv -f "$tmp" "$target"
