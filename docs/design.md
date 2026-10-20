@@ -58,7 +58,10 @@ public by then). It:
   `~/.config/curve-rig/trusted-owners`;
 - registers `hooks/session-start.sh` as a user-level SessionStart hook with
   the `startup` matcher in `~/.claude/settings.json`, merging rather than
-  overwriting.
+  overwriting;
+- adds the attribution rule in `templates/user-CLAUDE.md` (no session links
+  in commits or PR text) to `~/.claude/CLAUDE.md`, between markers, keeping
+  the rest of the file.
 
 **Stage 2 — `hooks/session-start.sh`**, a user-level SessionStart hook, so it
 fires in single- and multi-repo sessions alike — once, at startup, not on

@@ -41,7 +41,7 @@ lib/relay.sh              relay staging, staleness gate, apply
 .github/workflows/        CI, denylist, reusable beads relay
 plugins/rig/              the Claude Code plugin (skills, agents)
 .claude-plugin/           marketplace manifest
-templates/                member-repo CLAUDE.md / REVIEW.md skeletons
+templates/                member-repo CLAUDE.md / REVIEW.md, user CLAUDE.md rule
 docs/                     design and plan
 ```
 

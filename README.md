@@ -63,6 +63,15 @@ git -C "$RIG_HOME" checkout -q "$RIG_REF"
 Repositories owned by anyone else are never touched — including ones an
 agent clones during the session.
 
+`rig-install` also adds one rule to the user-level `~/.claude/CLAUDE.md`,
+merged between markers and leaving the rest of the file alone: agents put
+no `Claude-Session:` trailer or claude.ai session link in commits, PR titles,
+PR descriptions or PR comments, since in a public repository such a link
+publishes an identifier for the session's transcript. `Co-Authored-By:`
+stays. A user's CLAUDE.md takes precedence over the default attribution
+guidance. The rule's text is `templates/user-CLAUDE.md`; on a machine
+without the installer, add it to `~/.claude/CLAUDE.md` by hand.
+
 ## Using rig locally
 
 In the member repo's committed `.claude/settings.json`:

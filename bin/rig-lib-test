@@ -246,6 +246,33 @@ check "one rig hook, startup only, alongside the other" jq -e '
     (.hooks.SessionStart | length == 2)
     and ([.hooks.SessionStart[] | select(.matcher == "startup")] | length == 1)' "$work/real/settings.json"
 check "trusted owners lower-cased" test "$(cat "$XDG_CONFIG_HOME/curve-rig/trusted-owners")" = $'acme\nother'
+# The user-level CLAUDE.md: rig's attribution block merged in once, the
+# rest of the file kept, through a symlink, idempotently.
+mem="$work/real/CLAUDE.md"
+printf '# Mine\n\nKeep this line.\n' > "$mem"
+rm -f "$cfg/CLAUDE.md"; ln -s "$mem" "$cfg/CLAUDE.md"
+check "install merges into an existing CLAUDE.md" inst "$cfg"
+check "CLAUDE.md still a symlink" test -L "$cfg/CLAUDE.md"
+check "the user's own lines kept" grep -qxF 'Keep this line.' "$mem"
+check "the attribution rule added" grep -qF 'Claude-Session:' "$mem"
+cp "$mem" "$work/mem-once"
+check "install again" inst "$cfg"
+check "CLAUDE.md merge is idempotent" cmp -s "$work/mem-once" "$mem"
+check "one copy of the rule" test "$(grep -c '^<!-- rig:attribution:begin' "$mem")" -eq 1
+# An older copy of the block is replaced in place; text after it is kept.
+sed -i 's/^## Attribution: no session links$/## stale heading/' "$mem"
+printf '\nAfter rig.\n' >> "$mem"
+check "install over an older block" inst "$cfg"
+refute "the older block replaced" grep -q 'stale heading' "$mem"
+check "text after the block kept" grep -qxF 'After rig.' "$mem"
+check "still one copy of the rule" test "$(grep -c '^<!-- rig:attribution:begin' "$mem")" -eq 1
+printf '# Other\n<!-- rig:attribution:begin\n' > "$work/c3.md"; mkdir -p "$work/c3"
+cp "$work/c3.md" "$work/c3/CLAUDE.md"
+refute "unmatched rig markers refused" inst "$work/c3"
+check "refused CLAUDE.md untouched" cmp -s "$work/c3.md" "$work/c3/CLAUDE.md"
+mkdir -p "$work/c4"
+check "install with no CLAUDE.md" inst "$work/c4"
+check "a new CLAUDE.md is the rule alone" cmp -s "$RIG_HOME/templates/user-CLAUDE.md" "$work/c4/CLAUDE.md"
 printf '{}\n{}\n' > "$work/multi.json"; mkdir -p "$work/c2"; cp "$work/multi.json" "$work/c2/settings.json"
 refute "multi-document settings.json refused" inst "$work/c2"
 check "refused settings.json untouched" cmp -s "$work/multi.json" "$work/c2/settings.json"
