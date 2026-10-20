@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # bin/rig-ci-tools — install the pinned shellcheck and actionlint that
-# bin/rig-check runs, into DIR (default ~/.local/bin). Used by CI so that
-# what passes does not depend on the runner image.
+# bin/rig-check runs, and the pinned bd and dolt that bin/rig-beads-test
+# runs, into DIR (default ~/.local/bin). Used by CI so that what passes
+# does not depend on the runner image.
 #
 # Usage: rig-ci-tools [DIR]
 
@@ -44,3 +45,11 @@ install_pinned shellcheck \
 install_pinned actionlint \
     "https://github.com/rhysd/actionlint/releases/download/v$RIG_ACTIONLINT_VERSION/actionlint_${RIG_ACTIONLINT_VERSION}_$plat.tar.gz" \
     "${!al_sha:-}" actionlint
+dolt_sha="RIG_DOLT_SHA256_$plat"
+bd_sha="RIG_BD_SHA256_$plat"
+install_pinned dolt \
+    "https://github.com/dolthub/dolt/releases/download/v$RIG_DOLT_VERSION/dolt-${plat/_/-}.tar.gz" \
+    "${!dolt_sha:-}" "dolt-${plat/_/-}/bin/dolt"
+install_pinned bd \
+    "https://github.com/gastownhall/beads/releases/download/v$RIG_BD_VERSION/beads_${RIG_BD_VERSION}_$plat.tar.gz" \
+    "${!bd_sha:-}" bd

@@ -126,7 +126,18 @@ check "bootstrap saw the https remote" test -e "$FAKE_SAW_HTTPS"
 check "tracked config.yaml restored" git -C "$root/g-beads" diff --quiet -- .beads/config.yaml
 check "existing store kept after a failed bootstrap" test -f "$root/g-beads/.beads/embeddeddolt/local-writes"
 check "symlinked .beads refused" grep -q 'h-symlink: .beads is a symlink' "$work/hook.err"
-check "tool output goes to the log" test -s "$XDG_STATE_HOME/curve-rig/session-start.log"
+hlog="$XDG_STATE_HOME/curve-rig/session-start.log"
+check "tool output goes to the log" test -s "$hlog"
+# The log holds every line the hook printed, to stdout or stderr.
+missing_from_log() {
+    local line
+    while IFS= read -r line; do
+        [ -z "$line" ] || grep -qxF -- "$line" "$hlog" || { echo "$line"; return 0; }
+    done < <(printf '%s\n' "$out"; cat "$work/hook.err")
+    return 1
+}
+refute "the log is a superset of what the hook printed" missing_from_log
+check "the summary lines still reach stdout" grep -q '^\[rig\] a-trusted: .rig/setup.sh ok' <<< "$out"
 
 # Killed mid-bootstrap: the config is restored and the hook exits 0.
 cat > "$fake/bd" <<'BD'
@@ -145,6 +156,76 @@ hrc=0; wait "$hook_pid" || hrc=$?
 check "killed hook exits 0" test "$hrc" -eq 0
 check "killed hook restores config.yaml" git -C "$root/g-beads" diff --quiet -- .beads/config.yaml
 refute "killed hook leaves no bd running" pgrep -f "$fake/bd bootstrap"
+
+# --- Locating the beads store ------------------------------------------
+
+# bd says where the store's data lives (`bd where --json`); rig finds the one
+# database in it. Fixtures lay out each mode as bd 1.3.1 does.
+# shellcheck source=../lib/relay.sh
+. "$RIG_HOME/lib/relay.sh"
+wfake="$work/where-fake"; mkdir -p "$wfake"
+cat > "$wfake/bd" <<'BD'
+#!/usr/bin/env bash
+case "$1 ${2:-}" in
+    "where --json") [ -n "$FAKE_DATA" ] || exit 1
+        printf '{"path":"%s/.beads","database_path":"%s"}\n' "$PWD" "$FAKE_DATA" ;;
+    "context --json") printf '{"dolt_mode":"%s"}\n' "$FAKE_MODE" ;;
+    *) exit 1 ;;
+esac
+BD
+chmod +x "$wfake/bd"
+st="$work/stores"
+store_in() { PATH="$wfake:$PATH" FAKE_DATA="$2" rig_relay_doltdir "$1" 2>/dev/null; }
+mkrepo "$st/embedded" https://github.com/acme/s
+mkdir -p "$st/embedded/.beads/embeddeddolt/ex/.dolt"
+check "embedded: the database in .beads/embeddeddolt" test \
+    "$(store_in "$st/embedded" "$st/embedded/.beads/embeddeddolt")" = "$st/embedded/.beads/embeddeddolt/ex"
+for mode in server proxied; do
+    # The server's root is itself a Dolt directory, with stats and config
+    # beside the database.
+    mkrepo "$st/$mode" https://github.com/acme/s
+    mkdir -p "$st/$mode/.beads/dolt/.dolt/stats/.dolt" "$st/$mode/.beads/dolt/.doltcfg" \
+             "$st/$mode/.beads/dolt/ex/.dolt"
+    check "$mode: the database in .beads/dolt" test \
+        "$(store_in "$st/$mode" "$st/$mode/.beads/dolt")" = "$st/$mode/.beads/dolt/ex"
+done
+mkdir -p "$work/elsewhere/ex/.dolt"
+check "a custom data directory bd reports" test \
+    "$(store_in "$st/server" "$work/elsewhere")" = "$work/elsewhere/ex"
+mkrepo "$st/none" https://github.com/acme/s; mkdir -p "$st/none/.beads/dolt/.dolt"
+refute "no materialised store refused" store_in "$st/none" "$st/none/.beads/dolt"
+check "no store says so" grep -q 'no materialised beads store' \
+    <(PATH="$wfake:$PATH" FAKE_DATA="$st/none/.beads/dolt" rig_relay_doltdir "$st/none" 2>&1)
+mkdir -p "$st/server/.beads/dolt/other/.dolt"
+refute "more than one database refused" store_in "$st/server" "$st/server/.beads/dolt"
+check "more than one database says so" grep -q 'more than one database' \
+    <(PATH="$wfake:$PATH" FAKE_DATA="$st/server/.beads/dolt" rig_relay_doltdir "$st/server" 2>&1)
+refute "bd unable to locate the store refused" store_in "$st/embedded" ""
+check "the mode is bd's" test "$(PATH="$wfake:$PATH" FAKE_MODE=server rig_relay_mode "$st/server")" = server
+stage_says() {   # staging fails, saying $2
+    local said
+    ! said="$(cd "$st/server" && PATH="$wfake:$PATH" FAKE_MODE="$1" \
+        FAKE_DATA="$st/server/.beads/dolt" rig_relay_stage "$st/server" t 2>&1)" &&
+        grep -q "$2" <<< "$said"
+}
+check "a proxied-server store is not staged" stage_says proxied-server 'cannot relay a proxied-server'
+check "staging refuses more than one database" stage_says server 'more than one database'
+
+
+# --- beads.role -----------------------------------------------------------
+
+mkrepo "$work/role" https://github.com/acme/r
+rig_beads_role "$work/role"
+check "beads.role set to maintainer" test "$(git -C "$work/role" config --local beads.role)" = maintainer
+git -C "$work/role" config --local beads.role contributor
+rig_beads_role "$work/role"
+check "an existing beads.role is kept" test "$(git -C "$work/role" config beads.role)" = contributor
+git -C "$work/role" config --local --unset beads.role
+git config --global beads.role contributor
+rig_beads_role "$work/role"
+refute "a global beads.role is not overridden locally" git -C "$work/role" config --local beads.role
+git config --global --unset beads.role
+check "beads.role leaves the tree clean" test -z "$(git -C "$work/role" status --porcelain)"
 
 # --- Exclude patterns -----------------------------------------------------
 

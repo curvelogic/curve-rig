@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+# bin/rig-beads-test — the relay end to end with the pinned bd and dolt,
+# against a local stand-in for origin. For each storage mode that keeps the
+# tracker on refs/dolt/data, embedded and server, a store is created and
+# pushed, bootstrapped into a session clone by rig, written there, staged
+# with `rig-relay stage`, and applied by `rig-relay collect`, `apply` and
+# `finish` as CI runs them; a fresh bootstrap must then show the writes. In
+# server mode the session's dolt sql-server is running while it stages.
+# (bd 1.3.1 gives a proxied-server store no Dolt remote: it cannot be
+# relayed, and `stage` says so.)
+#
+# Usage: rig-beads-test
+#
+# Slow in server mode: bd 1.3.1's bootstrap retries for about a minute
+# before it clones into a fresh server.
+#
+# Needs bd and dolt on PATH: skipped locally without them, a failure in CI
+# (bin/rig-ci-tools installs the pinned versions). bin/rig-check runs it.
+
+set -euo pipefail
+
+RIG_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+relay="$RIG_HOME/bin/rig-relay"
+
+if ! command -v bd >/dev/null 2>&1 || ! command -v dolt >/dev/null 2>&1; then
+    if [ "${CI:-}" = true ]; then echo "rig-beads-test: bd and dolt are not installed" >&2; exit 1; fi
+    echo "rig-beads-test: skipped (bd and dolt not installed; bin/rig-ci-tools installs them)" >&2
+    exit 0
+fi
+
+work="$(mktemp -d)"
+# Stop every dolt sql-server bd started under $work, then remove it.
+cleanup() {
+    local pidf pid
+    while IFS= read -r -d '' pidf; do
+        pid="$(cat "$pidf" 2>/dev/null)" || continue
+        [[ "$pid" =~ ^[0-9]+$ ]] || continue
+        tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -qF -- "$work/" &&
+            kill "$pid" 2>/dev/null || true
+    done < <(find "$work" -name 'dolt-server.pid' -print0 2>/dev/null)
+    pkill -f -- "--config $work/" 2>/dev/null || true
+    sleep 1
+    rm -rf -- "${work:?}"
+}
+trap cleanup EXIT
+
+fails=0
+ok()   { printf 'ok   %s\n' "$1"; }
+bad()  { printf 'FAIL %s\n' "$1" >&2; fails=$((fails + 1)); }
+check() { local what="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$what"; else bad "$what"; fi; }
+
+unset GITHUB_ACTIONS BEADS_DIR BEADS_DOLT_SERVER_PORT BEADS_DOLT_SERVER_HOST
+export HOME="$work/home" GIT_CONFIG_GLOBAL="$work/home/gitconfig" GIT_CONFIG_NOSYSTEM=1
+export BD_NON_INTERACTIVE=1 RIG_LOG="$work/rig.log"
+mkdir -p "$HOME"
+git config --global user.name "beads test"
+git config --global user.email "beads-test@example.com"
+git config --global init.defaultBranch main
+git config --global advice.detachedHead false
+
+# shellcheck source=../lib/common.sh
+. "$RIG_HOME/lib/common.sh"
+# shellcheck source=../lib/pins.sh
+. "$RIG_HOME/lib/pins.sh"
+# shellcheck source=../lib/beads.sh
+. "$RIG_HOME/lib/beads.sh"
+
+# bd's --json output for issue $2 in repo $1.
+show() { (cd "$1" && bd show "$2" --json </dev/null 2>/dev/null) | jq -c 'if type == "array" then .[0] else . end'; }
+
+# Bootstrap repo $1 as the hook does, then report whether bd reads it.
+provision() { rig_bootstrap_beads "$1" </dev/null >>"$RIG_LOG" 2>&1; }
+
+for mode in embedded server; do
+    m="$work/$mode"; mkdir -p "$m"
+    flag=(); [ "$mode" = server ] && flag=(--server)
+
+    # The tracker: a store in this mode, pushed to origin's refs/dolt/data.
+    git init -q --bare "$m/origin.git"
+    git init -q "$m/seed"
+    git -C "$m/seed" remote add origin "$m/origin.git"
+    git -C "$m/seed" commit -q --allow-empty -m init
+    if ! ( cd "$m/seed" && bd init "${flag[@]}" -p ex --non-interactive &&
+           bd dolt remote add origin "git+file://$m/origin.git" &&
+           bd create "first issue" &&
+           { git add -A; git commit -q -m "beads" || true; } && git push -q origin main &&
+           bd dolt push ) </dev/null >>"$RIG_LOG" 2>&1; then
+        bad "$mode: create the tracker (see the log below)"; tail -n 20 "$RIG_LOG" >&2; continue
+    fi
+    first="$(cd "$m/seed" && bd list --json </dev/null 2>/dev/null | jq -r '.[0].id')"
+    ( cd "$m/seed" && bd dolt stop ) </dev/null >>"$RIG_LOG" 2>&1 || true
+
+    # The session: rig bootstraps the store and the session writes it.
+    git clone -q "$m/origin.git" "$m/session"
+    s="$m/session"
+    check "$mode: rig bootstraps the store" provision "$s"
+    check "$mode: beads.role is maintainer" test "$(git -C "$s" config beads.role)" = maintainer
+    check "$mode: bd prints no beads.role warning" \
+        bash -c "! (cd '$s' && bd list </dev/null 2>&1) | grep -q 'beads.role'"
+    check "$mode: the tree is clean" test -z "$(git -C "$s" status --porcelain)"
+    ( cd "$s" && bd update "$first" --title "renamed in session" &&
+      bd create "made in session" && bd remember "session memory" --key session-fact
+    ) </dev/null >>"$RIG_LOG" 2>&1
+    made="$(cd "$s" && bd list --json </dev/null 2>/dev/null |
+        jq -r '.[] | select(.title == "made in session") | .id')"
+    if [ "$mode" = server ]; then
+        check "server: the sql-server is running while staging" \
+            jq -e '.running == true' <(cd "$s" && bd dolt status --json </dev/null 2>/dev/null)
+    fi
+    out="$(cd "$s" && "$relay" stage roundtrip 2>&1)" || true
+    printf '%s\n' "$out" >> "$RIG_LOG"
+    check "$mode: stage pushes an inbox branch" grep -q '^Pushed beads-inbox/' <<< "$out"
+    check "$mode: stage staged both issues and the memory" grep -q '^Staged 3 record' <<< "$out"
+    check "$mode: the session tree is clean after staging" test -z "$(git -C "$s" status --porcelain)"
+
+    # CI: a fresh checkout of the default branch applies the inbox branch.
+    git clone -q "$m/origin.git" "$m/ci"
+    out="$(cd "$m/ci" && export RIG_RELAY_ALLOW_CI=1 &&
+        { "$relay" bootstrap && "$relay" collect "$m/relay" &&
+          "$relay" apply "$m/relay" && "$relay" finish "$m/relay"; } 2>&1)" || true
+    printf '%s\n' "$out" >> "$RIG_LOG"
+    check "$mode: CI applies the delta" grep -q '^Applied 1 delta' <<< "$out"
+    check "$mode: CI deletes the inbox branch" \
+        test -z "$(git -C "$m/origin.git" for-each-ref refs/heads/beads-inbox/)"
+
+    # Read back from a fresh bootstrap.
+    git clone -q "$m/origin.git" "$m/after"
+    check "$mode: a fresh bootstrap reads the tracker" provision "$m/after"
+    check "$mode: the update arrived" \
+        jq -e '.title == "renamed in session"' <(show "$m/after" "$first")
+    check "$mode: the new issue arrived" \
+        jq -e '.title == "made in session"' <(show "$m/after" "$made")
+    check "$mode: the memory arrived" \
+        grep -q 'session memory' <(cd "$m/after" && bd recall session-fact </dev/null 2>/dev/null)
+
+    for d in seed session ci after; do
+        ( cd "$m/$d" && bd dolt stop ) </dev/null >/dev/null 2>&1 || true
+    done
+done
+
+echo
+if [ "$fails" -eq 0 ]; then echo "rig-beads-test: ok"; else
+    echo "rig-beads-test: $fails failed (log: tail of $RIG_LOG)" >&2
+    tail -n 40 "$RIG_LOG" >&2
+    exit 1
+fi

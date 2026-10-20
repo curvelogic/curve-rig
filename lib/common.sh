@@ -13,8 +13,14 @@ RIG_STATE_DIR="${RIG_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/curve-rig}
 # stdout is added to the agent's context.
 RIG_LOG="${RIG_LOG:-$RIG_STATE_DIR/rig.log}"
 
-rig_log()  { printf '[rig] %s\n' "$*"; }
-rig_warn() { printf '[rig] WARNING: %s\n' "$*" >&2; }
+# With RIG_LOG_COPY=1 (the hook sets it, unexported), each line is also
+# appended to $RIG_LOG, so the log holds everything the hook prints.
+rig_log()  { printf '[rig] %s\n' "$*"; _rig_log_copy "[rig] $*"; }
+rig_warn() { printf '[rig] WARNING: %s\n' "$*" >&2; _rig_log_copy "[rig] WARNING: $*"; }
+_rig_log_copy() {
+    [ "${RIG_LOG_COPY:-}" = 1 ] || return 0
+    printf '%s\n' "$1" >> "$RIG_LOG" 2>/dev/null || true
+}
 
 # First line of a string, without a pipe: `cmd | head -1` can SIGPIPE the
 # producer and, under pipefail, turn a good result into a failure.

@@ -128,6 +128,9 @@ changes.
 - `bin/rig-relay-test`, run by `bin/rig-check`: the git side of the relay
   (pushing, validation, applying deltas read from refs, deleting) against
   a local stand-in for origin, with a fake bd.
+- `bin/rig-beads-test`, run by `bin/rig-check`: stage, apply and read back
+  end to end with the pinned bd and dolt, for an embedded store and a
+  server-mode one with its sql-server running.
 
 ## Staging
 
@@ -149,6 +152,16 @@ replacing them, and cannot delete. So a removed label or dependency, a
 removed or edited comment, a deleted issue and a forgotten memory are not
 relayed; `stage` names each one it finds, and they have to be made from
 somewhere that can push the store.
+
+**Where the store is.** `stage` asks bd for the storage mode and where the
+store lives: `.beads/embeddeddolt/<name>` for an embedded store, the
+sql-server's data directory (`.beads/dolt/<name>` by default) in server
+mode. It refuses if there is no database there, or more than one. An
+embedded store is read with the dolt CLI, as nothing else holds it open.
+A server-mode store is read with `bd sql`, through the running sql-server
+(bd starts it if it is down), so no second process opens the files the
+server holds. Proxied-server mode cannot be relayed: bd 1.3.1 gives it no
+Dolt remote, so it has no `refs/dolt/data`.
 
 The staged file is the matching records from `bd export --all`, one per
 line. A store without an `origin` Dolt remote is refused: it was hydrated
