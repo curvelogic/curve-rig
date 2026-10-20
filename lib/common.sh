@@ -19,7 +19,7 @@ rig_log()  { printf '[rig] %s\n' "$*"; _rig_log_copy "[rig] $*"; }
 rig_warn() { printf '[rig] WARNING: %s\n' "$*" >&2; _rig_log_copy "[rig] WARNING: $*"; }
 _rig_log_copy() {
     [ "${RIG_LOG_COPY:-}" = 1 ] || return 0
-    printf '%s\n' "$1" >> "$RIG_LOG" 2>/dev/null || true
+    { printf '%s\n' "$1" >> "$RIG_LOG"; } 2>/dev/null || true
 }
 
 # First line of a string, without a pipe: `cmd | head -1` can SIGPIPE the
