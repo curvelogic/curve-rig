@@ -14,9 +14,9 @@
 # executed.
 #
 # Output: one line per step on stdout (it becomes agent context); tool
-# output goes to the log file. Always exits 0: a failing hook must not stop
-# the session starting. Tracked files it rewrites are restored even if it
-# is killed.
+# output goes to the log file, which also gets a copy of every line printed.
+# Always exits 0: a failing hook must not stop the session starting.
+# Tracked files it rewrites are restored even if it is killed.
 
 set -uo pipefail
 
@@ -35,6 +35,9 @@ export RIG_HOME
 RIG_LOG="$RIG_STATE_DIR/session-start.log"
 export RIG_LOG
 rig_open_log
+# Copy every line the hook prints into the log too. Not exported: a
+# member's .rig/setup.sh already writes all its output to the log.
+RIG_LOG_COPY=1
 
 trap 'rig_restore_all' EXIT
 trap 'rig_on_signal' INT TERM

@@ -139,6 +139,19 @@ rig_beads_config_https() {
            -e 's#git@github\.com:#https://github.com/#g' "$cfg"
 }
 
+# Set beads.role to maintainer in the repo's local git config, unless a role
+# is already set there or globally. Unset, bd prints "beads.role not
+# configured (GH#2950)" on every command and guesses the role from the
+# origin URL; a contributor role routes bd list and ready to a separate
+# planning store when contributor routing is configured. rig provisions a
+# member's own store, which the session writes and the relay stages, so the
+# role is maintainer — what bd init sets for whoever creates a store.
+# .git/config is not part of the working tree.
+rig_beads_role() {
+    git -C "$1" config --get beads.role >/dev/null 2>&1 && return 0
+    git -C "$1" config --local beads.role maintainer 2>/dev/null || true
+}
+
 _rig_bd_bootstrap() {
     cd "$1" && timeout "$2" bd bootstrap --yes </dev/null >>"$RIG_LOG" 2>&1
 }
@@ -169,6 +182,7 @@ rig_bootstrap_beads() {
     chmod 700 "$beads" 2>/dev/null || true
 
     if _rig_beads_store_ok "$repo"; then
+        rig_beads_role "$repo"
         rig_log "$name: beads store already materialised"
         return 0
     fi
@@ -204,6 +218,7 @@ rig_bootstrap_beads() {
     fi
 
     if [ "$status" -eq 0 ] && _rig_beads_store_ok "$repo"; then
+        rig_beads_role "$repo"
         rig_log "$name: beads store materialised, $(rig_beads_open_count "$repo") open issues"
         return 0
     fi

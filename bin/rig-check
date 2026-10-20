@@ -59,6 +59,8 @@ done < <(jq -r '.plugins[] | [.name, .source] | @tsv' "$market")
 bin/rig-relay-test >/dev/null || fail "bin/rig-relay-test (run it to see which)"
 # Provisioning, the installer and the denylist scan, with fake bd and dolt.
 bin/rig-lib-test >/dev/null || fail "bin/rig-lib-test (run it to see which)"
+# The relay end to end with the pinned bd and dolt; needs them in CI.
+bin/rig-beads-test >/dev/null || fail "bin/rig-beads-test (run it to see which)"
 
 [ "$status" -eq 0 ] && echo "rig-check: ok"
 exit "$status"

@@ -23,18 +23,51 @@ RIG_RELAY_PREFIX="beads-inbox/"
 RIG_RELAY_NAME_RE='^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9_][A-Za-z0-9_-]{0,39}$'
 RIG_RELAY_MAX_BYTES=$(( 16 * 1024 * 1024 ))
 
-# The embedded Dolt database of a repo's beads store, e.g.
-# .beads/embeddeddolt/<name>. Fails if there is none, or more than one.
+# The storage mode bd uses for REPO's beads store: embedded, server or
+# proxied-server, as bd resolves it (metadata.json and the environment).
+rig_relay_mode() {
+    local ctx mode
+    ctx="$(cd "$1" && timeout 60 bd context --json </dev/null 2>/dev/null)" &&
+        mode="$(jq -r '.dolt_mode // empty' <<< "$ctx" 2>/dev/null)" &&
+        [ -n "$mode" ] || { rig_warn "bd cannot tell the beads storage mode of $1"; return 1; }
+    printf '%s\n' "$mode"
+}
+
+# The Dolt database of a repo's beads store, wherever bd keeps it for the
+# repo's configured mode: .beads/embeddeddolt/<name> embedded, the server's
+# data directory (.beads/dolt/<name> by default) in server mode. bd
+# resolves the directory itself (`bd where`), so a custom data directory is
+# found too. Fails if there is none, or more than one.
 rig_relay_doltdir() {
+    local where data
     local -a found=()
+    where="$(cd "$1" && timeout 60 bd where --json </dev/null 2>/dev/null)" &&
+        data="$(jq -r '.database_path // empty' <<< "$where" 2>/dev/null)" &&
+        [ -n "$data" ] || { rig_warn "bd cannot locate the beads store in $1"; return 1; }
     mapfile -d '' -t found < <(
-        find "$1/.beads/embeddeddolt" -mindepth 2 -maxdepth 2 -name .dolt -type d \
-            -printf '%h\0' 2>/dev/null
+        find "$data" -mindepth 2 -maxdepth 2 -name .dolt -type d -printf '%h\0' 2>/dev/null
     )
     case "${#found[@]}" in
         1) printf '%s\n' "${found[0]}" ;;
-        0) rig_warn "no materialised beads store in $1/.beads/embeddeddolt"; return 1 ;;
-        *) rig_warn "more than one database in $1/.beads/embeddeddolt"; return 1 ;;
+        0) rig_warn "no materialised beads store in $data"; return 1 ;;
+        *) rig_warn "more than one database in $data"; return 1 ;;
+    esac
+}
+
+# Run one SQL statement against a beads store, printing its rows as a JSON
+# array of objects.
+#   $1 repo   $2 mode   $3 database directory   $4 statement
+# An embedded store is opened only by the process using it, so the dolt CLI
+# reads it directly (bd 1.3.1 has no `bd sql` in embedded mode). In server
+# mode the running sql-server holds the store open, so the statement goes
+# through bd to that server (starting it if it is down), and no second
+# process opens its files.
+rig_relay_sql() {
+    case "$2" in
+        embedded) ( cd "$3" && timeout 120 dolt sql -r json -q "$4" </dev/null 2>/dev/null ) |
+                      jq -c '.rows // []' ;;
+        server)   ( cd "$1" && timeout 120 bd sql --json "$4" </dev/null 2>/dev/null ) ;;
+        *)        return 1 ;;
     esac
 }
 
@@ -59,8 +92,8 @@ _rig_relay_label() {
 #                record's labels, dependencies and comments rather than
 #                replacing them, and cannot delete issues or memories
 _rig_relay_changes() {
-    local doltdir="$1" b="$2"
-    ( cd "$doltdir" && dolt sql -r json -q "
+    local repo="$1" mode="$2" doltdir="$3" b="$4"
+    rig_relay_sql "$repo" "$mode" "$doltdir" "
 select 'issue' as kind, w.id as k from issues w
  where not exists (select 1 from issues as of '$b' o
                     where o.id = w.id and o.updated_at <=> w.updated_at)
@@ -96,7 +129,7 @@ union select 'lost-issue', o.id from issues as of '$b' o
 union select 'lost-memory', substring(o.\`key\`, 11) from config as of '$b' o
  where o.\`key\` like 'kv.memory.%'
    and not exists (select 1 from config w where w.\`key\` = o.\`key\`)
-" </dev/null ) | jq -r '.rows[]? | [.kind, .k] | @tsv' | LC_ALL=C sort -u
+" | jq -r '.[]? | [.kind, .k] | @tsv' | LC_ALL=C sort -u
 }
 
 # Stage this session's beads changes in REPO as one JSONL file under
@@ -106,22 +139,31 @@ union select 'lost-memory', substring(o.\`key\`, 11) from config as of '$b' o
 # store and the remote's history, so a row the remote changed underneath
 # the session is never staged with this store's stale values.
 rig_relay_stage() {
-    local repo="$1" label doltdir base changes ids mems out tmp stamp n
+    local repo="$1" label mode doltdir base changes ids mems out tmp stamp n
     label="$(_rig_relay_label "${2:-}")"
     command -v bd >/dev/null 2>&1 || { rig_warn "bd is not on PATH"; return 1; }
-    command -v dolt >/dev/null 2>&1 || { rig_warn "dolt is not on PATH"; return 1; }
+    mode="$(rig_relay_mode "$repo")" || return 1
+    case "$mode" in
+        embedded) command -v dolt >/dev/null 2>&1 || { rig_warn "dolt is not on PATH"; return 1; } ;;
+        server) ;;
+        *) rig_warn "cannot relay a $mode beads store: it has no Dolt remote to" \
+               "bootstrap from or apply to. Nothing staged."
+           return 1 ;;
+    esac
     doltdir="$(rig_relay_doltdir "$repo")" || return 1
 
     # A store bootstrapped from the remote has an origin remote; one hydrated
     # from a stray issues.jsonl does not, and has no shared history to diff.
-    if ! ( cd "$doltdir" && dolt remote -v </dev/null 2>/dev/null ) | grep -q '^origin[[:space:]]'; then
+    if ! rig_relay_sql "$repo" "$mode" "$doltdir" "select name from dolt_remotes" |
+            jq -e 'any(.[]; .name == "origin")' >/dev/null 2>&1; then
         rig_warn "the beads store has no origin remote, so it was not bootstrapped" \
             "from the tracker and its rows are not the tracker's. Nothing staged."
         return 1
     fi
     # A fresh bootstrap has no remotes/origin/main until something fetches.
-    if ! ( cd "$doltdir" && timeout 120 dolt fetch origin </dev/null >/dev/null 2>&1 ); then
-        if ( cd "$doltdir" && dolt branch -a </dev/null 2>/dev/null ) | grep -q 'remotes/origin/main$'; then
+    if ! rig_relay_sql "$repo" "$mode" "$doltdir" "call dolt_fetch('origin')" >/dev/null; then
+        if rig_relay_sql "$repo" "$mode" "$doltdir" "select name from dolt_remote_branches" |
+                jq -e 'any(.[]; .name == "remotes/origin/main")' >/dev/null 2>&1; then
             rig_warn "dolt fetch failed; diffing against the last-fetched remote state"
         else
             rig_warn "dolt fetch failed and there is no remotes/origin/main to diff" \
@@ -129,11 +171,13 @@ rig_relay_stage() {
             return 1
         fi
     fi
-    base="$(cd "$doltdir" && dolt merge-base main remotes/origin/main </dev/null 2>/dev/null)"
+    base="$(rig_relay_sql "$repo" "$mode" "$doltdir" \
+        "select dolt_merge_base('main', 'remotes/origin/main') as b" |
+        jq -r '.[0].b // empty' 2>/dev/null)" || true
     [[ "$base" =~ ^[0-9a-v]{32}$ ]] || {
         rig_warn "no merge base between main and remotes/origin/main"; return 1; }
 
-    changes="$(_rig_relay_changes "$doltdir" "$base")" || {
+    changes="$(_rig_relay_changes "$repo" "$mode" "$doltdir" "$base")" || {
         rig_warn "could not compute the store's changes"; return 1; }
     local kind key lost=0
     while IFS=$'\t' read -r kind key; do

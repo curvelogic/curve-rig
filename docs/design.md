@@ -73,8 +73,9 @@ whose origin owner is not trusted, and for each trusted one:
 
 It works to a deadline inside its registered timeout, gives everything it
 runs `/dev/null` as stdin, prints one line per step (stdout becomes agent
-context) and sends tool output to `~/.local/state/curve-rig/`. It always
-exits 0.
+context) and sends tool output to
+`~/.local/state/curve-rig/session-start.log`, which also gets a copy of
+every line it prints. It always exits 0.
 
 **Local sessions** use the plugin: the repo enables `rig@curvelogic` in its
 committed `.claude/settings.json`. Local provisioning stays with the developer
@@ -104,6 +105,13 @@ Nothing else is required; a repo with none of these is left alone.
   ssh, so the remote is rewritten to https for the bootstrap and the tracked
   file restored afterwards. A store that fails to bootstrap is deleted rather
   than left empty, so the failure stays visible.
+- **Role.** bd warns on every command while `beads.role` is unset
+  (upstream issue 2950) and guesses the role from the origin URL. rig sets
+  it to `maintainer` in the clone's `.git/config` when neither that nor the
+  user's git config sets one: the session works the member's own store,
+  which the relay stages, and `maintainer` is what `bd init` sets for the
+  store's creator. `contributor` would route `bd list` and `bd ready` to a
+  separate planning store where contributor routing is configured.
 - **Never seed from `.beads/issues.jsonl`.** bd will hydrate an empty store
   from an export lying beside it, and the result looks healthy while being
   stale. A real store has a Dolt remote; that is the check.

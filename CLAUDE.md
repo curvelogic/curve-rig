@@ -32,6 +32,7 @@ bin/rig-hook-test         prove the hook fires, in a headless session
 bin/rig-relay             beads relay: stage/push (session), collect/apply (CI)
 bin/rig-relay-test        the relay's git side against a local origin
 bin/rig-lib-test          provisioning, installer and denylist regressions
+bin/rig-beads-test        the relay end to end with the pinned bd and dolt
 hooks/session-start.sh    stage 2: provision trusted repos in the session
 lib/common.sh             logging, deadline, restores, discovery, trust
 lib/pins.sh               pinned versions and digests of every download
@@ -52,11 +53,11 @@ bin/rig-check
 
 Runs `bash -n` and shellcheck on every script, actionlint on the workflows,
 validates every JSON file and the plugin/marketplace manifests, and runs
-`bin/rig-relay-test` and `bin/rig-lib-test`. Without
-shellcheck or actionlint installed it skips them locally and fails in CI;
-`bin/rig-ci-tools` installs the pinned versions CI uses. CI runs the same;
-a separate workflow runs the denylist from the base branch
-(`.github/workflows/denylist.yml`).
+`bin/rig-relay-test`, `bin/rig-lib-test` and `bin/rig-beads-test`.
+Without shellcheck, actionlint, bd or dolt installed it skips what needs
+them locally and fails in CI; `bin/rig-ci-tools` installs the pinned
+versions CI uses. CI runs the same; a separate workflow runs the denylist
+from the base branch (`.github/workflows/denylist.yml`).
 
 ## Workflow
 
