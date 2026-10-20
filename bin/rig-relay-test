@@ -1,0 +1,215 @@
+#!/usr/bin/env bash
+# bin/rig-relay-test — test the beads relay's git side without GitHub, bd or
+# dolt: pushing a staged delta as an inbox branch, validating inbox branch
+# names and contents, and applying deltas read from refs.
+#
+# Usage: rig-relay-test
+#
+# Works in a throwaway directory against a local bare repository standing
+# in for origin, with a fake bd whose store is a JSONL file. bin/rig-check
+# runs it.
+
+set -euo pipefail
+
+RIG_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+relay="$RIG_HOME/bin/rig-relay"
+
+work="$(mktemp -d)"
+trap 'rm -rf -- "${work:?}"' EXIT
+
+fails=0
+ok()   { printf 'ok   %s\n' "$1"; }
+bad()  { printf 'FAIL %s\n' "$1" >&2; fails=$((fails + 1)); }
+check() { local what="$1"; shift; if "$@" >/dev/null; then ok "$what"; else bad "$what"; fi; }
+fails_in() { local dir="$1"; shift; ! (cd "$dir" && "$@") 2>/dev/null; }
+
+# Plain output, as outside Actions, wherever this runs.
+unset GITHUB_ACTIONS
+
+# Git with a fixed identity and no user configuration.
+export GIT_CONFIG_GLOBAL="$work/gitconfig" GIT_CONFIG_NOSYSTEM=1
+git config --global user.name "relay test"
+git config --global user.email "relay-test@example.com"
+git config --global init.defaultBranch main
+git config --global advice.detachedHead false
+
+# A fake bd: the store is $FAKE_STORE, one record per line. import upserts
+# by id (issues) or key (memories); dolt commit and push do nothing.
+mkdir -p "$work/bin"
+cat > "$work/bin/bd" <<'BD'
+#!/usr/bin/env bash
+set -euo pipefail
+case "$1 ${2:-}" in
+    "export --all") cp "$FAKE_STORE" "$4" ;;
+    "import "*)
+        jq -c -s '[.[] | {k: (.id // ("mem:" + .key)), v: .}] | reduce .[] as $r ({}; .[$r.k] = $r.v) | .[]' \
+            "$FAKE_STORE" "$2" > "$FAKE_STORE.new"
+        mv "$FAKE_STORE.new" "$FAKE_STORE"
+        echo "import $(basename "$2")" >> "$FAKE_STORE.log" ;;
+    "dolt "*) ;;
+    *) echo "fake bd: unsupported: $*" >&2; exit 1 ;;
+esac
+BD
+chmod +x "$work/bin/bd"
+export PATH="$work/bin:$PATH" FAKE_STORE="$work/store.jsonl"
+rec() { printf '{"id":"%s","title":"%s","updated_at":"%s"}\n' "$1" "$2" "$3"; }
+
+# Origin with a beads-using default branch.
+git init -q --bare "$work/origin.git"
+git clone -q "$work/origin.git" "$work/seed" 2>/dev/null
+mkdir -p "$work/seed/.beads"
+echo "sync: {}" > "$work/seed/.beads/config.yaml"
+echo "app" > "$work/seed/app.txt"
+git -C "$work/seed" add -A && git -C "$work/seed" commit -q -m init
+git -C "$work/seed" push -q origin main
+
+# --- Session side: push a staged delta as an inbox branch -----------------
+
+git clone -q "$work/origin.git" "$work/session"
+s="$work/session"
+git -C "$s" checkout -q -b feature
+echo "work in progress" >> "$s/app.txt"
+echo "untracked" > "$s/notes.txt"
+before_head="$(git -C "$s" rev-parse HEAD)"
+before_status="$(git -C "$s" status --porcelain)"
+mkdir -p "$s/.beads/inbox"
+rec ex-1 "from a session" 2026-01-02T00:00:00Z > "$s/.beads/inbox/20260102T000000Z-alpha.jsonl"
+cp "$s/.beads/inbox/20260102T000000Z-alpha.jsonl" "$work/alpha.jsonl"
+
+out="$(cd "$s" && "$relay" push .beads/inbox/20260102T000000Z-alpha.jsonl 2>&1)" || true
+check "push creates the inbox branch" \
+    git -C "$work/origin.git" rev-parse -q --verify refs/heads/beads-inbox/20260102T000000Z-alpha
+check "the branch adds only the delta, on the default branch" \
+    test "$(git -C "$work/origin.git" diff --name-status main beads-inbox/20260102T000000Z-alpha)" \
+         = "A	.beads/inbox/20260102T000000Z-alpha.jsonl"
+check "the branch's parent is the default branch tip" \
+    test "$(git -C "$work/origin.git" rev-parse beads-inbox/20260102T000000Z-alpha^)" \
+         = "$(git -C "$work/origin.git" rev-parse main)"
+check "the staged file is removed once pushed" test ! -e "$s/.beads/inbox"
+check "HEAD, index and working tree are as they were" \
+    test "$(git -C "$s" rev-parse HEAD)/$(git -C "$s" status --porcelain)" = "$before_head/$before_status"
+
+mkdir -p "$s/.beads/inbox"
+cp "$work/alpha.jsonl" "$s/.beads/inbox/20260102T000000Z-alpha.jsonl"
+out="$(cd "$s" && "$relay" push .beads/inbox/20260102T000000Z-alpha.jsonl 2>&1)" || true
+check "pushing the same delta again is a no-op" grep -q "Already pushed" <<< "$out"
+
+mkdir -p "$s/.beads/inbox"
+echo "changed" > "$s/.beads/inbox/20260102T000000Z-alpha.jsonl"
+check "a different delta under a taken name is refused" \
+    fails_in "$s" "$relay" push .beads/inbox/20260102T000000Z-alpha.jsonl
+rm -rf -- "${s:?}/.beads/inbox"
+
+mkdir -p "$s/.beads/inbox"
+echo '{}' > "$s/.beads/inbox/not-a-delta.jsonl"
+check "a badly named file is not pushed" \
+    fails_in "$s" "$relay" push .beads/inbox/not-a-delta.jsonl
+rm -rf -- "${s:?}/.beads/inbox"
+
+# A second, later delta touching the same issue: both must apply, in order.
+mkdir -p "$s/.beads/inbox"
+rec ex-1 "later edit" 2026-01-03T00:00:00Z > "$s/.beads/inbox/20260103T000000Z-beta.jsonl"
+(cd "$s" && "$relay" push .beads/inbox/20260103T000000Z-beta.jsonl >/dev/null 2>&1) || true
+
+# --- Branches the relay must reject ----------------------------------------
+
+m="$work/maker"
+git clone -q "$work/origin.git" "$m"
+mkbranch() { # NAME FILE... : a branch off main adding each FILE (path=content)
+    local name="$1" spec; shift
+    git -C "$m" checkout -q -B "tmp" origin/main
+    for spec in "$@"; do
+        mkdir -p "$m/$(dirname "${spec%%=*}")"
+        printf '%s\n' "${spec#*=}" > "$m/${spec%%=*}"
+        git -C "$m" add -- "${spec%%=*}"
+    done
+    git -C "$m" commit -q -m "$name"
+    git -C "$m" push -q origin "tmp:refs/heads/$name"
+}
+good="$(rec ex-9 x 2026-01-05T00:00:00Z)"
+mkbranch beads-inbox/oops ".beads/inbox/oops.jsonl=$good"
+mkbranch beads-inbox/20260104T000000Z-two \
+    ".beads/inbox/20260104T000000Z-two.jsonl=$good" "app.txt=changed"
+mkbranch beads-inbox/20260104T000001Z-misnamed ".beads/inbox/20260104T000001Z-other.jsonl=$good"
+# Stale: the store holds ex-2 at a later time than this delta.
+mkbranch beads-inbox/20260104T000002Z-stale \
+    ".beads/inbox/20260104T000002Z-stale.jsonl=$(rec ex-2 stale 2026-01-01T00:00:00Z)"
+# Not JSON.
+mkbranch beads-inbox/20260104T000003Z-junk ".beads/inbox/20260104T000003Z-junk.jsonl=not json"
+
+# A file left on the default branch by the old route.
+git -C "$m" checkout -q -B main origin/main
+mkdir -p "$m/.beads/inbox"
+rec ex-3 legacy 2026-01-01T12:00:00Z > "$m/.beads/inbox/20260101T120000Z-legacy.jsonl"
+git -C "$m" add -A && git -C "$m" commit -q -m legacy && git -C "$m" push -q origin main
+
+# --- CI side: collect, apply, finish ----------------------------------------
+
+git clone -q "$work/origin.git" "$work/ci"
+c="$work/ci"
+{ rec ex-1 original 2026-01-01T00:00:00Z; rec ex-2 current 2026-02-01T00:00:00Z; } > "$FAKE_STORE"
+: > "$FAKE_STORE.log"
+export RIG_RELAY_ALLOW_CI=1 RIG_RELAY_NO_PUSH=1 RIG_RELAY_DEFAULT_BRANCH=main
+d="$work/relay"
+
+(cd "$c" && "$relay" collect "$d" >/dev/null 2>&1) || bad "collect runs"
+check "collect queues the legacy file and the good branches, in time order" \
+    test "$(cut -f1 "$d/manifest" | paste -sd ' ' -)" \
+         = "20260101T120000Z-legacy.jsonl 20260102T000000Z-alpha.jsonl 20260103T000000Z-beta.jsonl 20260104T000002Z-stale.jsonl 20260104T000003Z-junk.jsonl"
+check "a branch whose name does not match is rejected" grep -q '^beads-inbox/oops	name is not' "$d/rejected"
+check "a branch that changes another file is rejected" \
+    grep -q '^beads-inbox/20260104T000000Z-two	must add .* app.txt' "$d/rejected"
+check "a branch whose file is not named after it is rejected" \
+    grep -q '^beads-inbox/20260104T000001Z-misnamed	must add' "$d/rejected"
+check "exactly three branches are rejected" test "$(wc -l < "$d/rejected")" -eq 3
+check "the delta is read from the branch, byte for byte" \
+    cmp -s "$work/alpha.jsonl" "$d/deltas/20260102T000000Z-alpha.jsonl"
+check "nothing from an inbox branch is checked out" \
+    test "$(git -C "$c" status --porcelain)/$(git -C "$c" rev-parse --abbrev-ref HEAD)" = "/main"
+
+(cd "$c" && "$relay" apply "$d" >/dev/null 2>&1) || bad "apply runs"
+check "the deltas import in time order" \
+    test "$(paste -sd ' ' "$FAKE_STORE.log")" \
+         = "import 20260101T120000Z-legacy.jsonl import 20260102T000000Z-alpha.jsonl import 20260103T000000Z-beta.jsonl"
+check "the later delta wins" \
+    test "$(jq -r 'select(.id == "ex-1") | .title' "$FAKE_STORE")" = "later edit"
+check "the stale delta did not overwrite the store" \
+    test "$(jq -r 'select(.id == "ex-2") | .title' "$FAKE_STORE")" = current
+check "the stale and invalid deltas are refused" test "$(wc -l < "$d/refused")" -eq 2
+
+if out="$(cd "$c" && "$relay" finish "$d" 2>&1)"; then
+    bad "finish fails when something was rejected"
+else
+    ok "finish fails when something was rejected"
+fi
+check "finish names the rejected and refused branches" \
+    test "$(grep -c 'error: beads-inbox/' <<< "$out")" -eq 5
+branches="$(git -C "$work/origin.git" for-each-ref --format='%(refname:short)' refs/heads/beads-inbox/ | paste -sd ' ' -)"
+check "applied branches are deleted; refused and rejected ones are left" \
+    test "$branches" = "beads-inbox/20260104T000000Z-two beads-inbox/20260104T000001Z-misnamed beads-inbox/20260104T000002Z-stale beads-inbox/20260104T000003Z-junk beads-inbox/oops"
+check "the default branch gains no commit" \
+    test "$(git -C "$work/origin.git" log --oneline main | head -n 1 | cut -d' ' -f2-)" = legacy
+check "finish says to retire the legacy file" grep -q "on the default branch were applied" <<< "$out"
+
+# An applied branch that moved after it was read is not deleted.
+git -C "$work/origin.git" for-each-ref --format='delete %(refname)' refs/heads/beads-inbox/ |
+    git -C "$work/origin.git" update-ref --stdin
+git -C "$m" checkout -q -B main origin/main && git -C "$m" pull -q origin main
+git -C "$m" rm -q -r .beads/inbox && git -C "$m" commit -q -m retire && git -C "$m" push -q origin main
+mkbranch beads-inbox/20260105T000000Z-moving ".beads/inbox/20260105T000000Z-moving.jsonl=$(rec ex-4 m 2026-01-05T00:00:00Z)"
+rm -rf -- "${d:?}"
+(cd "$c" && "$relay" collect "$d" >/dev/null 2>&1 && "$relay" apply "$d" >/dev/null 2>&1) || bad "second run applies"
+git -C "$m" commit -q --allow-empty -m moved && git -C "$m" push -q origin "tmp:refs/heads/beads-inbox/20260105T000000Z-moving"
+(cd "$c" && "$relay" finish "$d" >/dev/null 2>&1) || bad "finish succeeds when all applied"
+check "a branch that moved after it was read is left in place" \
+    git -C "$work/origin.git" rev-parse -q --verify refs/heads/beads-inbox/20260105T000000Z-moving
+
+rm -rf -- "${d:?}"
+out="$(cd "$c" && "$relay" collect "$d" 2>&1 && "$relay" apply "$d" 2>&1)" || bad "a re-run applies"
+check "re-applying an applied delta is accepted" grep -q "Applied 1 delta" <<< "$out"
+
+unset RIG_RELAY_ALLOW_CI
+check "the CI commands refuse to run outside CI" \
+    fails_in "$c" "$relay" collect "$work/x"
+
+if [ "$fails" -eq 0 ]; then echo "rig-relay-test: ok"; else echo "rig-relay-test: $fails failure(s)" >&2; exit 1; fi

@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# bin/rig-install — stage 1: install rig into the user's ~/.claude.
+#
+# Usage: rig-install [--trusted-owners OWNER[,OWNER...]]
+#
+# Run from a cloud environment's setup script (see README), or by hand. It:
+#   - links the plugin's skills and agents into ~/.claude/{skills,agents},
+#     and bin/rig-relay into ~/.local/bin;
+#   - records the GitHub owners whose repositories the hook may provision
+#     (also settable later via RIG_TRUSTED_OWNERS);
+#   - registers hooks/session-start.sh as a user-level SessionStart hook
+#     (matcher "startup") in ~/.claude/settings.json, merging with what is
+#     there and writing through a symlinked settings file.
+# Idempotent: re-running replaces rig's own entries and nothing else.
+#
+# RIG_HOME defaults to the checkout this script lives in.
+
+set -euo pipefail
+
+RIG_HOME="${RIG_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+PLUGIN="$RIG_HOME/plugins/rig"
+HOOK="$RIG_HOME/hooks/session-start.sh"
+
+# shellcheck source=../lib/common.sh
+. "$RIG_HOME/lib/common.sh"
+
+owners_arg=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --trusted-owners) owners_arg="${2:-}"; shift 2 ;;
+        --trusted-owners=*) owners_arg="${1#*=}"; shift ;;
+        -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) rig_warn "unknown argument: $1"; exit 2 ;;
+    esac
+done
+
+command -v jq >/dev/null 2>&1 || { rig_warn "jq is required"; exit 1; }
+
+mkdir -p "$CLAUDE_DIR/skills" "$CLAUDE_DIR/agents"
+
+# Skills: one directory each. Names carry a rig- prefix (see docs/design.md).
+for dir in "$PLUGIN"/skills/*/; do
+    [ -d "$dir" ] || continue
+    ln -sfn "${dir%/}" "$CLAUDE_DIR/skills/$(basename "$dir")"
+done
+
+# Agents: one file each.
+for file in "$PLUGIN"/agents/*.md; do
+    [ -f "$file" ] || continue
+    ln -sf "$file" "$CLAUDE_DIR/agents/$(basename "$file")"
+done
+
+# Commands agents run by name.
+mkdir -p "$RIG_LOCAL_BIN"
+if [ -e "$RIG_LOCAL_BIN/rig-relay" ] && [ ! -L "$RIG_LOCAL_BIN/rig-relay" ]; then
+    rig_warn "$RIG_LOCAL_BIN/rig-relay exists and is not rig's link; left alone"
+else
+    ln -sfn "$RIG_HOME/bin/rig-relay" "$RIG_LOCAL_BIN/rig-relay"
+fi
+
+# Trusted owners.
+owners="${owners_arg:-${RIG_TRUSTED_OWNERS:-}}"
+if [ -n "$owners" ]; then
+    mkdir -p "$RIG_CONFIG_DIR"
+    printf '%s\n' "$owners" | sed 's/[, ]/\n/g' | tr '[:upper:]' '[:lower:]' \
+        | sed '/^$/d' > "$RIG_CONFIG_DIR/trusted-owners"
+elif [ ! -s "$RIG_CONFIG_DIR/trusted-owners" ]; then
+    rig_warn "no trusted owners set: the hook will provision nothing." \
+        "Re-run with --trusted-owners OWNER[,OWNER...]"
+fi
+
+# User-level SessionStart hook. Write through a symlinked settings.json to
+# its target; refuse anything that is not exactly one JSON object; replace
+# atomically with a temp file beside the target.
+settings="$CLAUDE_DIR/settings.json"
+target="$(readlink -f -- "$settings" 2>/dev/null || printf '%s' "$settings")"
+mkdir -p "$(dirname "$target")"
+[ -s "$target" ] || printf '{}\n' > "$target"
+if ! jq -s -e 'length == 1 and (.[0] | type == "object")' "$target" >/dev/null 2>&1; then
+    rig_warn "$target is not a single JSON object; left untouched"
+    exit 1
+fi
+
+tmp="$(mktemp "$target.XXXXXX")"
+trap 'rm -f "$tmp"' EXIT
+jq --arg hook "$HOOK" --arg home "$RIG_HOME" '
+    def rig_entry:
+        [ .hooks[]?.command // empty | strings
+          | contains($home + "/hooks/session-start.sh") ] | any;
+    .hooks.SessionStart = (
+        [ (.hooks.SessionStart // [])[] | select(rig_entry | not) ]
+        + [ { matcher: "startup",
+              hooks: [ { type: "command", command: ($hook | @sh), timeout: 900 } ] } ]
+    )
+' "$target" > "$tmp"
+chmod --reference="$target" "$tmp" 2>/dev/null || true
+mv -f "$tmp" "$target"
+trap - EXIT
+
+rig_log "installed from $RIG_HOME into $CLAUDE_DIR"

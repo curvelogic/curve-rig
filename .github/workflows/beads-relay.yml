@@ -1,0 +1,167 @@
+# Reusable beads relay: apply the beads deltas cloud sessions pushed on
+# beads-inbox/* branches, and push refs/dolt/data, which a session cannot.
+# See docs/relay.md.
+#
+# A member calls it from a workflow_dispatch workflow of its own, pinned to
+# a commit of rig; a push-triggered workflow with no secrets dispatches that
+# one on the default branch when an inbox branch arrives (docs/relay.md,
+# "Adopting it"):
+#
+#   on:
+#     workflow_dispatch:
+#       inputs:
+#         inbox-branch:
+#           type: string
+#           required: false
+#   jobs:
+#     relay:
+#       uses: curvelogic/curve-rig/.github/workflows/beads-relay.yml@<sha>
+#       with:
+#         rig-ref: <the same sha>
+#         inbox-branch: ${{ inputs.inbox-branch }}
+#       permissions:
+#         contents: write
+#
+# It runs only from the member's default branch. Inbox branches are read as
+# data: nothing from them is checked out or executed.
+
+name: beads relay
+
+on:
+  workflow_call:
+    inputs:
+      rig-ref:
+        description: >-
+          Full commit SHA of curve-rig whose scripts run the relay — the same
+          SHA the caller's `uses:` line pins.
+        required: true
+        type: string
+      inbox-branch:
+        description: >-
+          The inbox branch whose push dispatched this run, for the log. Every
+          inbox branch is read whatever this says; empty sweeps them all.
+        required: false
+        type: string
+        default: ""
+    secrets:
+      rig-token:
+        description: >-
+          A token that can read curve-rig. Needed only while it is private.
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  relay:
+    # The full ref, not ref_name: a tag named after the default branch would
+    # pass a name check and run code that is not on the default branch.
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    # One run at a time: each branches from the current refs/dolt/data tip,
+    # so a concurrent push would be rejected. A newer queued run replaces an
+    # older pending one, which loses nothing: every run reads every inbox
+    # branch there is.
+    concurrency:
+      group: beads-relay-${{ github.repository }}
+      cancel-in-progress: false
+    env:
+      RIG_RELAY_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      - name: Check inputs
+        env:
+          RIG_REF: ${{ inputs.rig-ref }}
+          INBOX: ${{ inputs.inbox-branch }}
+        run: |
+          [[ "$RIG_REF" =~ ^[0-9a-f]{40}$ ]] ||
+            { echo "::error::rig-ref must be a full commit SHA"; exit 1; }
+          # Never fail on the input: this run may have replaced a pending
+          # one, and must still sweep. Collecting rejects bad branches.
+          if [[ "$INBOX" =~ ^beads-inbox/[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9_][A-Za-z0-9_-]{0,39}$ ]]; then
+            echo "Dispatched for $INBOX; reading every inbox branch."
+          elif [ -n "$INBOX" ]; then
+            echo "Dispatched for a branch that is not an inbox branch name; reading every inbox branch."
+          fi
+
+      # Full history, without file contents until they are read: finding
+      # what an inbox branch changes needs its merge base with the default
+      # branch.
+      - name: Check out the member
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: member
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Check out rig
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: curvelogic/curve-rig
+          ref: ${{ inputs.rig-ref }}
+          path: rig
+          token: ${{ secrets.rig-token || github.token }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # GitHub serves a fork's commits from the upstream repository too, so
+      # a SHA that checks out is not necessarily rig's. Run only a commit on
+      # rig's main.
+      - name: Check rig-ref is on rig's main
+        run: |
+          git -C rig merge-base --is-ancestor HEAD refs/remotes/origin/main ||
+            { echo "::error::rig-ref is not a commit on curve-rig's main"; exit 1; }
+
+      # bd pushes refs/dolt/data from a git repository of its own, which does
+      # not see a checkout's credentials; a global rewrite reaches it, and
+      # the relay's own fetches and branch deletions.
+      - name: Authenticate git
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+          git config --global user.name "beads relay"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # Reads each inbox branch's one file with git as data, and rejects any
+      # branch that is not exactly one well-named new delta.
+      - name: Collect the inbox
+        id: collect
+        working-directory: member
+        run: |
+          ../rig/bin/rig-relay collect "$RUNNER_TEMP/relay"
+          if [ -s "$RUNNER_TEMP/relay/manifest" ]; then
+            echo "has_deltas=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_deltas=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install bd and dolt; materialise the store
+        if: steps.collect.outputs.has_deltas == 'true'
+        working-directory: member
+        run: ../rig/bin/rig-relay bootstrap
+
+      # Deltas are unreviewed, and bd and the gate can echo their contents:
+      # nothing in this step's output is taken as a workflow command.
+      - name: Apply the inbox
+        if: steps.collect.outputs.has_deltas == 'true'
+        working-directory: member
+        run: |
+          token="$(openssl rand -hex 16)"
+          echo "::stop-commands::$token"
+          rc=0
+          ../rig/bin/rig-relay apply "$RUNNER_TEMP/relay" || rc=$?
+          echo "::$token::"
+          exit "$rc"
+
+      # Deletes only branches whose delta is in the pushed store, each only
+      # if it has not moved since it was read. Rejected and refused branches
+      # are left in place and fail the run. Deletions use GITHUB_TOKEN, which
+      # raises no workflow events.
+      - name: Clear applied branches and report
+        if: ${{ !cancelled() && steps.collect.outcome == 'success' }}
+        working-directory: member
+        run: ../rig/bin/rig-relay finish "$RUNNER_TEMP/relay"

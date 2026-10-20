@@ -1,0 +1,48 @@
+# Private-name scan.
+#
+# The RIG_DENYLIST secret lives in the "denylist" environment, whose
+# deployment branches are restricted to main, so no workflow on any other
+# branch can read it. PRs are scanned via pull_request_target: the workflow
+# and the scanner both come from the base branch, and the PR's commits are
+# fetched only as data for git to read — nothing from the PR is executed.
+# The PR's title and description are public too: they are scanned on every
+# edit, passed through the environment, never into the script.
+
+name: Denylist
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    environment: denylist
+    steps:
+      - name: Check out the scanner (base branch)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: scanner
+          persist-credentials: false
+      - name: Fetch the commits under scan (data only)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: target
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Scan
+        env:
+          RIG_DENYLIST: ${{ secrets.RIG_DENYLIST }}
+          RIG_DENYLIST_REQUIRED: "1"
+          RIG_PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          RIG_PR_TITLE: ${{ github.event.pull_request.title }}
+          RIG_PR_BODY: ${{ github.event.pull_request.body }}
+        run: scanner/bin/rig-denylist-check target
