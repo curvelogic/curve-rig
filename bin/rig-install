@@ -104,30 +104,36 @@ trap - EXIT
 # User-level CLAUDE.md: rig's block, between its markers, replaces any
 # earlier copy of the block in place, or is appended; the rest of the file
 # is kept byte for byte. Written through a symlink, replaced atomically.
-rule="$RIG_HOME/templates/user-CLAUDE.md"
-memory="$CLAUDE_DIR/CLAUDE.md"
-target="$(readlink -f -- "$memory" 2>/dev/null || printf '%s' "$memory")"
-begin='<!-- rig:attribution:begin'
-end='<!-- rig:attribution:end -->'
-[ -f "$target" ] || : > "$target"
-if [ "$(grep -c -- "^$begin" "$target")" != "$(grep -cxF -- "$end" "$target")" ] ||
-   [ "$(grep -c -- "^$begin" "$target")" -gt 1 ]; then
-    rig_warn "$target has unmatched or repeated rig markers; left untouched"
-    exit 1
-fi
-tmp="$(mktemp "$target.XXXXXX")"
-trap 'rm -f "$tmp"' EXIT
-awk -v begin="$begin" -v end="$end" -v rule="$rule" '
-    function block(  line) { while ((getline line < rule) > 0) print line; close(rule); done = 1 }
-    index($0, begin) == 1 { skip = 1; block(); next }
-    skip && $0 == end     { skip = 0; next }
-    !skip                 { print; n++ }
-    END {
-        if (!done) { if (n > 0) print ""; block() }
-    }
-' "$target" > "$tmp"
-chmod --reference="$target" "$tmp" 2>/dev/null || true
-mv -f "$tmp" "$target"
-trap - EXIT
+# A file it cannot merge safely is left untouched with a warning, and the
+# install still succeeds: the rule is not worth failing a setup script for.
+merge_rule() {
+    local rule="$RIG_HOME/templates/user-CLAUDE.md" target tmp nb
+    local begin='<!-- rig:attribution:begin' end='<!-- rig:attribution:end -->'
+    target="$(readlink -m -- "$CLAUDE_DIR/CLAUDE.md")"
+    mkdir -p "$(dirname "$target")" && { [ -f "$target" ] || : 2>/dev/null > "$target"; } || return 1
+    nb="$(grep -c -- "^$begin" "$target")" || true
+    if [ "$nb" -gt 1 ] || [ "$nb" != "$(grep -cxF -- "$end" "$target")" ]; then
+        rig_warn "$target has unmatched or repeated rig markers"; return 1
+    fi
+    tmp="$(mktemp "$target.XXXXXX")" || return 1
+    # Exits 2 if a begin marker has no end after it (the markers are out of
+    # order), so nothing after it is dropped.
+    if ! awk -v begin="$begin" -v end="$end" -v rule="$rule" '
+            function block(  line) { while ((getline line < rule) > 0) print line; close(rule); done = 1 }
+            index($0, begin) == 1 { skip = 1; block(); next }
+            skip && $0 == end     { skip = 0; next }
+            !skip                 { print; n++ }
+            END {
+                if (skip) exit 2
+                if (!done) { if (n > 0) print ""; block() }
+            }
+        ' "$target" > "$tmp"; then
+        rm -f "$tmp"; rig_warn "$target has rig markers out of order"; return 1
+    fi
+    chmod --reference="$target" "$tmp" 2>/dev/null || true
+    mv -f "$tmp" "$target" || { rm -f "$tmp"; return 1; }
+}
+merge_rule || rig_warn "the attribution rule was not added to" \
+    "$CLAUDE_DIR/CLAUDE.md, which is left untouched; see templates/user-CLAUDE.md"
 
 rig_log "installed from $RIG_HOME into $CLAUDE_DIR"
