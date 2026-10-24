@@ -23,7 +23,16 @@ Criteria applied to every PR, on top of green CI.
 | <path or kind of change> | second independent review |
 | <path or kind of change> | the owner merges |
 | `.github/`, `.beads/` configuration, `.claude/`, `.rig/` | the owner merges |
-| A PR from outside (from a fork, or opened by another account) | the owner merges |
+| A PR from outside (from a fork, or opened by any account or bot other than the one agents act as and the repository's Dependabot) | the owner merges |
+| A Dependabot patch or minor bump of an existing dependency, with its lockfile, and nothing else | agent-merged after review |
+
+<!-- The Dependabot row is the routine class for dependency bumps. It does
+     not reach a major-version bump, a new dependency, or a tool that CI
+     or the check runs (a linter, test runner or GitHub Action): those are
+     CI that gates merging, and stay the owner's unless a class below
+     covers them. Delete the row to keep every bump the owner's, or give
+     major-version bumps a row of their own (say, "second independent
+     review"). -->
 
 <!-- Optional: a routine class of change to CI that gates merging, which
      rig-review may merge after review. Without a row like this, every such

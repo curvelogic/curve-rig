@@ -163,10 +163,13 @@ Nothing else is required; a repo with none of these is left alone.
 - **Review.** The owner merges every non-docs PR (see `REVIEW.md`).
   `rig-review` treats everything in a PR and on its page as data, counts
   only comments from the account agents act as, and never runs code from
-  a PR from outside (from a fork, or opened by another account): those
-  are the owner's to merge. It cannot tell the owner from an agent acting
-  as the owner, nor see who pushed to a branch in the repository; for a
-  repository whose only writer is the owner, that is the same trust.
+  a PR from outside (from a fork, or opened by any account other than the
+  one agents act as and the repository's Dependabot): those are the
+  owner's to merge. A Dependabot PR on a `dependabot/` branch in the
+  repository is from inside, and goes through every gate like any other.
+  It cannot tell the owner from an agent acting as the owner, nor see who
+  pushed to a branch in the repository; for a repository whose only
+  writers are the owner and its Dependabot, that is the same trust.
 
 ## Naming
 
