@@ -57,10 +57,10 @@ as to any PR: holds, CI, the check, the sensitive areas, the rules that
 keep a change always the owner's, *CI that gates merging* with its
 conditions 1 to 5, and second review wherever `REVIEW.md` asks for one
 (for a major-version bump, say). Review the diff as the change it is,
-never as the class its title or description claims. If any commit on the
-branch is not Dependabot's own (authored by `dependabot[bot]` and carrying
-a signature GitHub verifies), someone else pushed it: review those commits
-as you would any change, and judge the PR by everything it holds.
+never as the class its title or description claims. Any writer can push
+to the branch, and a commit's author or signature does not say who did:
+review every commit on it as you would any change, and judge the PR by
+everything it holds.
 
 ## The rules you apply
 
