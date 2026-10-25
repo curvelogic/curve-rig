@@ -34,8 +34,15 @@ Run it before every commit. CI runs the same.
 - One branch per bead, `<bead-id>/<slug>`. Commit, push, open a PR. Never
   commit to the default branch.
 - Every PR is reviewed by a fresh `rig-review` agent against `REVIEW.md`.
-  It merges on green CI, or escalates by opening a decision bead and leaving
-  the PR open.
+  It merges on green CI, sends back for blocking findings only, or
+  escalates by opening a decision bead and leaving the PR open.
+- After a send-back, fix the blocking findings and dispatch a re-review
+  with the PR number, the head SHA the previous review covered and that
+  review's comment. Two rounds by default; if the second still finds
+  blocking problems, the reviewer escalates to the owner. Run first
+  reviews, second reviews and any review of a sensitive area at the
+  session's model; a re-review of a non-sensitive PR may pass a cheaper
+  model as the Agent tool's `model` override, saying so in the dispatch.
 - In a cloud session, finish beads work with the `rig-relay` skill — `bd`
   writes are otherwise lost with the container. It pushes them on a
   `beads-inbox/…` branch of their own; never commit `.beads/inbox/` files

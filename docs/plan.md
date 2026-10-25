@@ -37,8 +37,10 @@ org-level tracker. rig has no beads store of its own (see `CLAUDE.md`).
 - Reviewer agent `rig-review`: fresh context, adversarial; takes its rules
   from the member's `REVIEW.md` on the base branch; requires green CI and
   runs the member's check; merges, sends back, or escalates to a decision
-  bead; second-independent-review mode; inherits the session's model. Loads
-  in a headless session; not yet run against a real PR.
+  bead; second-independent-review and re-review modes; sends back on
+  blocking findings only, with a two-round limit; runs at the session's
+  model except for non-sensitive re-reviews. Loads in a headless session;
+  not yet run against a real PR.
 - Plugin and marketplace manifests; skills `rig-provision` and `rig-relay`;
   agent `rig-review`.
 - Templates for a member repo's `CLAUDE.md` and `REVIEW.md`.

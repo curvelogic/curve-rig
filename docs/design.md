@@ -188,6 +188,27 @@ Nothing else is required; a repo with none of these is left alone.
   nor see who pushed to a branch in the repository; for a repository
   whose only writer is the owner, that is the same trust.
 
+## Review rounds
+
+`rig-review` sends a PR back only for blocking findings; non-blocking ones
+(style, wording, nits) are listed separately, for the author to fold into a
+later push or leave. A PR gets two review rounds by default, the first
+review and one re-review, and a member's `REVIEW.md` may set another
+limit. A re-review is given the head SHA of the previous review and that
+review's comment, and checks only the diff since: each blocking finding
+fixed, nothing new blocking, the check re-run only if the diff touches
+code or what the check runs. It falls back to a full review when the diff
+is large or rewrites earlier work. The reviewer counts rounds from its own
+verdict comments on the PR, each of which names the round and the head it
+covers. If the last round still finds blocking problems, the reviewer
+escalates to the owner with a hold instead of sending back.
+
+First reviews, second independent reviews and any review touching a
+sensitive area run at the dispatching session's tier. A re-review of a
+non-sensitive PR may run on a cheaper model: the agent definition says
+`model: inherit`, and the dispatcher passes the Agent tool's `model`
+override for such a re-review only.
+
 ## Naming
 
 - Repository: `curve-rig`. Marketplace: `curvelogic`. Plugin: `rig`, so
