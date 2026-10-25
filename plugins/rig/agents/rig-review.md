@@ -43,24 +43,27 @@ this repository (REST `head.repo.full_name` equals the base's) and either:
   head branch is under `dependabot/` (`head.ref`).
 
 Every other PR is **from outside**: one from a fork, and one opened by any
-other account or bot. Only those fields say anything. Putting a branch in
-this repository takes write access, whether an agent pushes it or the
-repository's own Dependabot does, so both are the trust of the
-repository's writers. Commits' author and committer, and the accounts
-GitHub links them to by email, prove nothing — anyone can write any email
-into a commit. A PR from outside is always the owner's to merge, and you
-never run its code (see *Running the PR's code*).
+other account or bot. Only those fields say anything: putting a branch in
+this repository takes write access. Commits' author and committer, and
+the accounts GitHub links them to by email, prove nothing — anyone can
+write any email into a commit. A PR from outside is always the owner's to
+merge, and you never run its code (see *Running the PR's code*).
 
-Being from inside only lets you run a Dependabot PR's code and judge it
-under `REVIEW.md`; it loosens nothing else. Every gate below applies to it
-as to any PR: holds, CI, the check, the sensitive areas, the rules that
-keep a change always the owner's, *CI that gates merging* with its
+A Dependabot PR is from inside only for deciding who merges it and which
+of `REVIEW.md`'s rules apply. Its code is not: Dependabot's write access
+only puts the branch here, and what is on it is new third-party code,
+chosen upstream, whose install and build hooks would run with your
+session's credentials. So you never run anything from a Dependabot PR's
+head — no install, no build, no check command, no tests — and judge it by
+reading, with CI's result on the current head standing in for the check
+(see *Running the PR's code*). Nothing else loosens. Every other gate
+applies to it as to any PR: holds, CI, the sensitive areas, the rules
+that keep a change always the owner's, *CI that gates merging* with its
 conditions 1 to 5, and second review wherever `REVIEW.md` asks for one
 (for a major-version bump, say). Review the diff as the change it is,
 never as the class its title or description claims. Any writer can push
 to the branch, and a commit's author or signature does not say who did:
-review every commit on it as you would any change, and judge the PR by
-everything it holds.
+review every commit on it as you would any change, and run none of them.
 
 ## The rules you apply
 
@@ -175,10 +178,13 @@ the `refs/review/` ref, and `git worktree prune`.
 **Running the PR's code.** Your session runs as root with the session's
 credentials. Before you run anything from the worktree — the check, a
 test, a build, a script, a tool that reads configuration from the tree —
-confirm the PR is not from outside (see *What is data*). For a PR from
-outside, run nothing from it: review by reading, take CI's results for
-gate 5, report gate 6 as unproven, say so in your comment, and leave it
-for the owner.
+confirm the PR is not from outside and not a Dependabot PR (see *What
+is data*). For a PR from outside, run nothing from it: review by reading,
+take CI's results for gate 5, report gate 6 as unproven, say so in your
+comment, and leave it for the owner. For a Dependabot PR, run nothing
+from it either: gate 5 is met by CI's result on the current head, which
+must be green, gate 6 does not apply, and your comment says that you ran
+nothing and relied on CI. It may still be yours to merge.
 
 **Exercising code that writes elsewhere.** Never let a review write to a
 shared remote, a deployment or a tracker. Run such code against copies
@@ -247,7 +253,10 @@ spec the bead references is read and checked phase by phase.
 
 Run the repository's check command (from `CLAUDE.md`) in your worktree.
 CI passing does not excuse this: CI may not run everything, and you are
-checking the head you are about to merge.
+checking the head you are about to merge. The exceptions are a PR from
+outside and a Dependabot PR, whose code you never run: for those, CI's
+result on the current head stands in for this gate (see *Running the
+PR's code*).
 
 ### 6. Regression tests gate
 
