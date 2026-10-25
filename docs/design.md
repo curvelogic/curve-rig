@@ -178,8 +178,10 @@ limit. A re-review is given the head SHA of the previous review and that
 review's comment, and checks only the diff since: each blocking finding
 fixed, nothing new blocking, the check re-run only if the diff touches
 code or what the check runs. It falls back to a full review when the diff
-is large or rewrites earlier work. If the last round still finds blocking
-problems, the reviewer escalates to the owner instead of sending back.
+is large or rewrites earlier work. The reviewer counts rounds from its own
+verdict comments on the PR, each of which names the round and the head it
+covers. If the last round still finds blocking problems, the reviewer
+escalates to the owner with a hold instead of sending back.
 
 First reviews, second independent reviews and any review touching a
 sensitive area run at the dispatching session's tier. A re-review of a
