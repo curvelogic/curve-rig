@@ -169,9 +169,10 @@ Nothing else is required; a repo with none of these is left alone.
   repository is from inside for deciding who merges it, and goes through
   every gate like any other, but no session ever runs its code: it is
   third-party code chosen upstream, so the reviewer reads it and relies on
-  CI's result for the check. It cannot tell the owner from an agent acting
-  as the owner, nor see who pushed to a branch in the repository; for a
-  repository whose only writer is the owner, that is the same trust.
+  CI's result for the check. `rig-review` cannot tell the owner from an
+  agent acting as the owner, nor see who pushed to a branch in the
+  repository; for a repository whose only writer is the owner, that is the
+  same trust.
 
 ## Naming
 
