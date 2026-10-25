@@ -115,6 +115,15 @@ Nothing else is required; a repo with none of these is left alone.
   which the relay stages, and `maintainer` is what `bd init` sets for the
   store's creator. `contributor` would route `bd list` and `bd ready` to a
   separate planning store where contributor routing is configured.
+- **The checkout's location.** bd refuses a store under `/home/` that is
+  outside the user's home folder, which is where a cloud session, running
+  as root, keeps its checkouts. It reads the home folder from the account
+  database, so setting `HOME` does not help, but it exempts the system
+  temp folder. So where a store sits in that layout, the hook exports
+  `TMPDIR` as the checkout's parent (the deepest folder covering every
+  such checkout) for its own `bd` calls and, through `CLAUDE_ENV_FILE`,
+  for the session's; `rig-relay` sets the same for its own calls, so it
+  works where the hook did not run.
 - **Never seed from `.beads/issues.jsonl`.** bd will hydrate an empty store
   from an export lying beside it, and the result looks healthy while being
   stale. A real store has a Dolt remote; that is the check.
