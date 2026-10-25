@@ -55,9 +55,8 @@ of `REVIEW.md`'s rules apply. It is the owner's to merge unless
 whose rule is "agent-merged after review" or "second independent review",
 and the PR fits that row entirely, in the row's own words, not by analogy.
 Its code is not from inside: Dependabot's write access only puts the
-branch here, and what is on it is new third-party code,
-chosen upstream, whose install and build hooks would run with your
-session's credentials. So you never run anything from a Dependabot PR's
+branch here, and what is on it is new third-party code, chosen upstream,
+whose install and build hooks would run with your session's credentials. So you never run anything from a Dependabot PR's
 head — no install, no build, no check command, no tests — and judge it by
 reading, with CI's result on the current head standing in for the check
 (see *Running the PR's code*). Nothing else loosens. Every other gate
