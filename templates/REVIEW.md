@@ -29,14 +29,17 @@ Criteria applied to every PR, on top of green CI.
      owner's. The class covers a Dependabot bump of one existing
      dependency to a patch or minor release, and the lockfile changes that
      bump brings, with no package added that the lockfile did not already
-     hold. For a 0.x version, a change to the first non-zero part (0.3 to
-     0.4, or 0.0.3 to 0.0.4) is a major bump. It does not reach a
+     hold and none it held moved across a major version. For a 0.x
+     version, a change to the first non-zero part (0.3 to 0.4, or 0.0.3
+     to 0.0.4) is a major bump. It does not reach a
      major-version bump, a new dependency, or a tool that CI or the check
      runs (a linter, test runner or GitHub Action): those are CI that
      gates merging, and stay the owner's unless the class below covers
-     them. Before adopting it, set Dependabot's `cooldown` so a release
-     waits some days before it is proposed. To adopt it, move the row into
-     the table above; give major-version bumps a row of their own if you
+     them. rig-review never runs a Dependabot PR's code, so it merges on
+     CI's result: adopt the class only where CI runs everything the check
+     command runs. Before adopting it, set Dependabot's `cooldown` so a
+     release waits some days before it is proposed. To adopt it, move the
+     row into the table above; give major-version bumps a row of their own if you
      want them reviewed twice (say, "second independent review").
 
 | A Dependabot patch or minor bump of an existing dependency, as defined above, and nothing else | agent-merged after review |
