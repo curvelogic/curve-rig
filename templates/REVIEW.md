@@ -51,6 +51,12 @@ Criteria applied to every PR, on top of green CI.
 
 Method: squash.
 
+## Review rounds
+
+<!-- Optional. rig-review allows two rounds by default: the first review
+     and one re-review, then it escalates to the owner. To change that,
+     replace this comment with, e.g., "Limit: 3 rounds." -->
+
 ## Worth flagging, not blocking
 
 <!-- Things the reviewer should mention in its comment so the owner sees
