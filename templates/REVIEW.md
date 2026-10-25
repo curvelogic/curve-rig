@@ -28,8 +28,8 @@ Criteria applied to every PR, on top of green CI.
      merge after review. Without a row like this, every Dependabot PR is
      the owner's. The row carries its own limits, so keep it whole. A
      tool that CI or the check runs (a linter, test runner or GitHub
-     Action) is CI that gates merging, and stays the owner's unless the
-     class below covers it. rig-review never runs a Dependabot PR's code,
+     Action) is CI that gates merging: a Dependabot bump of one stays the
+     owner's, even with the class below adopted. rig-review never runs a Dependabot PR's code,
      so it merges on CI's result: adopt the class only where CI runs
      everything the check command runs, on Dependabot's PRs too. Before
      adopting it, set Dependabot's `cooldown` so a release waits some days
@@ -37,7 +37,7 @@ Criteria applied to every PR, on top of green CI.
      above; give major-version bumps a row of their own if you want them
      reviewed twice (say, "second independent review").
 
-| A Dependabot PR that bumps one existing dependency to a patch or minor release, and changes nothing but that dependency's version and the lockfile entries the bump brings: no package added to the lockfile, none moved across a major version, and no tool CI or the check runs. On a 0.x version, a change to the first non-zero part (0.3 to 0.4, 0.0.3 to 0.0.4) is a major bump. | agent-merged after review |
+| A Dependabot PR that bumps one existing dependency to a patch or minor release, and changes nothing but that dependency's version and the lockfile entries the bump brings: no package added to the lockfile, none moved across a major version, none fetched from a different source (registry, URL or git repository), and no tool CI or the check runs. On a 0.x version, a change to the first non-zero part (0.3 to 0.4, 0.0.3 to 0.0.4) is a major bump. | agent-merged after review |
 -->
 
 <!-- Optional: a routine class of change to CI that gates merging, which
