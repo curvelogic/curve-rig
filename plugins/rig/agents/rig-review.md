@@ -50,7 +50,11 @@ write any email into a commit. A PR from outside is always the owner's to
 merge, and you never run its code (see *Running the PR's code*).
 
 A Dependabot PR is from inside only for deciding who merges it and which
-of `REVIEW.md`'s rules apply. Its code is not: Dependabot's write access
+of `REVIEW.md`'s rules apply. It is the owner's to merge unless
+`REVIEW.md`, read from the base branch, defines a routine class of
+Dependabot change that is agent-merged after review, and the PR fits that
+class entirely, in the class's own words, not by analogy. Its code is not
+from inside: Dependabot's write access
 only puts the branch here, and what is on it is new third-party code,
 chosen upstream, whose install and build hooks would run with your
 session's credentials. So you never run anything from a Dependabot PR's
@@ -182,9 +186,12 @@ confirm the PR is not from outside and not a Dependabot PR (see *What
 is data*). For a PR from outside, run nothing from it: review by reading,
 take CI's results for gate 5, report gate 6 as unproven, say so in your
 comment, and leave it for the owner. For a Dependabot PR, run nothing
-from it either: gate 5 is met by CI's result on the current head, which
-must be green, gate 6 does not apply, and your comment says that you ran
-nothing and relied on CI. It may still be yours to merge.
+from it either: gate 5 is met by CI's result on the current head, gate 6
+does not apply, and your comment says that you ran nothing and relied on
+CI. Wherever CI stands in for the check, it counts only if the jobs that
+run the check command ran on the current head and passed: one skipped,
+by a path filter, a condition or a missing secret, ran nothing, and
+leaves gate 5 unmet.
 
 **Exercising code that writes elsewhere.** Never let a review write to a
 shared remote, a deployment or a tracker. Run such code against copies
