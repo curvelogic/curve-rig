@@ -29,9 +29,10 @@ Criteria applied to every PR, on top of green CI.
      the owner's. The row carries its own limits, so keep it whole. A
      tool that CI or the check runs (a linter, test runner or GitHub
      Action) is CI that gates merging: a Dependabot bump of one stays the
-     owner's, even with the class below adopted. rig-review never runs a Dependabot PR's code,
-     so it merges on CI's result: adopt the class only where CI runs
-     everything the check command runs, on Dependabot's PRs too. Before
+     owner's, even with the class below adopted. rig-review never runs a
+     Dependabot PR's code, so it merges on CI's result: adopt the class
+     only where CI runs everything the check command runs, on Dependabot's
+     PRs too. Before
      adopting it, set Dependabot's `cooldown` so a release waits some days
      before it is proposed. To adopt it, move the row into the table
      above; give major-version bumps a row of their own if you want them
