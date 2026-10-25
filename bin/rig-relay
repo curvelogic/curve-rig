@@ -38,6 +38,10 @@ case "${1:-}" in -h|--help|"") usage; exit 0 ;; esac
 repo="$(git rev-parse --show-toplevel 2>/dev/null)" || {
     rig_warn "not inside a git repository"; exit 1; }
 [ -d "$repo/.beads" ] || { rig_warn "$repo has no .beads directory"; exit 1; }
+# Without the session hook's TMPDIR, bd refuses a store in the cloud
+# layout; set the same for this run's bd calls (see rig_bd_tmpdir).
+bd_tmpdir="$(rig_bd_tmpdir "$repo")"
+[ -z "$bd_tmpdir" ] || export TMPDIR="$bd_tmpdir"
 
 ci_only() {
     [ "${GITHUB_ACTIONS:-}" = true ] || [ "${RIG_RELAY_ALLOW_CI:-}" = 1 ] || {

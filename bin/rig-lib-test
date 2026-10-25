@@ -109,7 +109,8 @@ mkdir -p "$work/outside"; ln -s "$work/outside" "$root/h-symlink/.beads"
 
 rc=0
 out="$(cd "$root" && PATH="$fake:$PATH" RIG_FORCE=1 RIG_TRUSTED_OWNERS=acme \
-    CLAUDE_PROJECT_DIR="$root" timeout 60 "$RIG_HOME/hooks/session-start.sh" 2>"$work/hook.err")" || rc=$?
+    CLAUDE_PROJECT_DIR="$root" CLAUDE_ENV_FILE="$work/env" \
+    timeout 60 "$RIG_HOME/hooks/session-start.sh" 2>"$work/hook.err")" || rc=$?
 check "hook exits 0" test "$rc" -eq 0
 check "trusted setup.sh ran" test -e "$marker/a"
 check "a setup.sh reading stdin does not swallow later repos" test -e "$marker/b"
@@ -126,6 +127,7 @@ check "bootstrap saw the https remote" test -e "$FAKE_SAW_HTTPS"
 check "tracked config.yaml restored" git -C "$root/g-beads" diff --quiet -- .beads/config.yaml
 check "existing store kept after a failed bootstrap" test -f "$root/g-beads/.beads/embeddeddolt/local-writes"
 check "symlinked .beads refused" grep -q 'h-symlink: .beads is a symlink' "$work/hook.err"
+refute "no TMPDIR for stores outside /home" grep -q TMPDIR "$work/env"
 hlog="$XDG_STATE_HOME/curve-rig/session-start.log"
 check "tool output goes to the log" test -s "$hlog"
 # The log holds every line the hook printed, to stdout or stderr.
@@ -156,6 +158,49 @@ hrc=0; wait "$hook_pid" || hrc=$?
 check "killed hook exits 0" test "$hrc" -eq 0
 check "killed hook restores config.yaml" git -C "$root/g-beads" diff --quiet -- .beads/config.yaml
 refute "killed hook leaves no bd running" pgrep -f "$fake/bd bootstrap"
+
+# --- bd's home-folder check -----------------------------------------------
+
+check "common dir of siblings" test "$(rig_common_dir /home/u/o1/a /home/u/o2/b)" = /home/u
+check "common dir of a path and its ancestor" test "$(rig_common_dir /home/u /home/u/a/)" = /home/u
+check "common dir on a name boundary" test "$(rig_common_dir /home/ab /home/abc)" = /home
+check "common dir at the root" test "$(rig_common_dir /home/u /srv/x)" = /
+
+# A store under /home/ but outside the user's home, as in a cloud session.
+# bd refuses it unless TMPDIR covers it, so the hook writes one that covers
+# every such store to CLAUDE_ENV_FILE, once. Needs a directory it can make
+# under /home: skipped locally without one, made with sudo in CI.
+cloud=""
+if cloud="$(mktemp -d /home/rig-lib-test.XXXXXX 2>/dev/null)"; then :
+elif [ "${CI:-}" = true ] && cloud="$(sudo -n mktemp -d /home/rig-lib-test.XXXXXX)"; then
+    sudo -n chown "$(id -u):$(id -g)" "$cloud"
+else
+    cloud=""
+fi
+if [ -n "$cloud" ]; then
+    trap 'rm -rf -- "${work:?}"; rm -rf -- "${cloud:?}" 2>/dev/null || sudo -n rm -rf -- "${cloud:?}" || true' EXIT
+    for r in o1/x o2/y; do
+        mkrepo "$cloud/$r" "https://github.com/acme/${r#*/}"; mkdir -p "$cloud/$r/.beads"
+    done
+    check "TMPDIR for a cloud store is the checkout's parent" \
+        test "$(TMPDIR='' rig_bd_tmpdir "$cloud/o1/x")" = "$cloud/o1"
+    check "no TMPDIR when TMPDIR already covers it" \
+        test -z "$(TMPDIR="$cloud" rig_bd_tmpdir "$cloud/o1/x")"
+    check "no TMPDIR for a store in the user's home" \
+        test -z "$(_rig_account_home() { echo "$cloud"; }; TMPDIR='' rig_bd_tmpdir "$cloud/o1/x")"
+    for _ in 1 2; do
+        ( cd "$cloud" && PATH="$fake:$PATH" RIG_FORCE=1 RIG_TRUSTED_OWNERS=acme TMPDIR='' \
+            CLAUDE_PROJECT_DIR="$cloud" CLAUDE_ENV_FILE="$work/cloud-env" \
+            timeout 60 "$RIG_HOME/hooks/session-start.sh" >/dev/null 2>&1 ) || true
+    done
+    check "the hook's last TMPDIR covers every cloud store" \
+        test "$(grep TMPDIR "$work/cloud-env" | tail -1)" = "export TMPDIR=$cloud"
+    check "a re-run writes no line twice" \
+        test -z "$(sort "$work/cloud-env" | uniq -d)"
+else
+    [ "${CI:-}" != true ] || bad "cannot make a directory under /home"
+    echo "skip cloud layout: cannot make a directory under /home"
+fi
 
 # --- Locating the beads store ------------------------------------------
 

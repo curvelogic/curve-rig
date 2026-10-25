@@ -7,7 +7,11 @@
 # `finish` as CI runs them; a fresh bootstrap must then show the writes. In
 # server mode the session's dolt sql-server is running while it stages.
 # (bd 1.3.1 gives a proxied-server store no Dolt remote: it cannot be
-# relayed, and `stage` says so.)
+# relayed, and `stage` says so.) A third pass, cloud, repeats embedded
+# with the session clone under /home/ but outside the user's home folder,
+# as in a cloud session, and stages without the hook's TMPDIR. It needs a
+# directory it can create under /home: skipped locally without one, made
+# with sudo in CI.
 #
 # Usage: rig-beads-test
 #
@@ -29,6 +33,14 @@ if ! command -v bd >/dev/null 2>&1 || ! command -v dolt >/dev/null 2>&1; then
 fi
 
 work="$(mktemp -d)"
+# The cloud pass's directory under /home, if one can be made.
+cloud=""
+if cloud="$(mktemp -d /home/rig-beads-test.XXXXXX 2>/dev/null)"; then :
+elif [ "${CI:-}" = true ] && cloud="$(sudo -n mktemp -d /home/rig-beads-test.XXXXXX)"; then
+    sudo -n chown "$(id -u):$(id -g)" "$cloud"
+else
+    cloud=""
+fi
 # Stop every dolt sql-server bd started under $work, then remove it.
 cleanup() {
     local pidf pid
@@ -41,6 +53,9 @@ cleanup() {
     pkill -f -- "--config $work/" 2>/dev/null || true
     sleep 1
     rm -rf -- "${work:?}"
+    if [ -n "$cloud" ]; then
+        rm -rf -- "${cloud:?}" 2>/dev/null || sudo -n rm -rf -- "${cloud:?}" || true
+    fi
 }
 trap cleanup EXIT
 
@@ -48,6 +63,7 @@ fails=0
 ok()   { printf 'ok   %s\n' "$1"; }
 bad()  { printf 'FAIL %s\n' "$1" >&2; fails=$((fails + 1)); }
 check() { local what="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$what"; else bad "$what"; fi; }
+refute() { local what="$1"; shift; if "$@" >/dev/null 2>&1; then bad "$what"; else ok "$what"; fi; }
 
 unset GITHUB_ACTIONS BEADS_DIR BEADS_DOLT_SERVER_PORT BEADS_DOLT_SERVER_HOST
 export HOME="$work/home" GIT_CONFIG_GLOBAL="$work/home/gitconfig" GIT_CONFIG_NOSYSTEM=1
@@ -68,12 +84,23 @@ git config --global advice.detachedHead false
 # bd's --json output for issue $2 in repo $1.
 show() { (cd "$1" && bd show "$2" --json </dev/null 2>/dev/null) | jq -c 'if type == "array" then .[0] else . end'; }
 
-# Bootstrap repo $1 as the hook does, then report whether bd reads it.
-provision() { rig_bootstrap_beads "$1" </dev/null >>"$RIG_LOG" 2>&1; }
+# Bootstrap repo $1 as the hook does, TMPDIR included, then report whether
+# bd reads it.
+provision() {
+    local t
+    t="$(rig_bd_tmpdir "$1")"
+    ( [ -z "$t" ] || export TMPDIR="$t"
+      rig_bootstrap_beads "$1" ) </dev/null >>"$RIG_LOG" 2>&1
+}
 
-for mode in embedded server; do
+for mode in embedded server cloud; do
     m="$work/$mode"; mkdir -p "$m"
     flag=(); [ "$mode" = server ] && flag=(--server)
+    if [ "$mode" = cloud ] && [ -z "$cloud" ]; then
+        if [ "${CI:-}" = true ]; then bad "cloud: cannot make a directory under /home"
+        else echo "skip cloud: cannot make a directory under /home"; fi
+        continue
+    fi
 
     # The tracker: a store in this mode, pushed to origin's refs/dolt/data.
     git init -q --bare "$m/origin.git"
@@ -91,9 +118,18 @@ for mode in embedded server; do
     ( cd "$m/seed" && bd dolt stop ) </dev/null >>"$RIG_LOG" 2>&1 || true
 
     # The session: rig bootstraps the store and the session writes it.
-    git clone -q "$m/origin.git" "$m/session"
-    s="$m/session"
+    s="$m/session"; [ "$mode" = cloud ] && s="$cloud/session"
+    git clone -q "$m/origin.git" "$s"
     check "$mode: rig bootstraps the store" provision "$s"
+    if [ "$mode" = cloud ]; then
+        # The layout must trip bd's check, or this pass proves nothing.
+        refute "cloud: bd context refuses the store without TMPDIR" \
+            bash -c "cd '$s' && TMPDIR='' bd context --json </dev/null"
+        check "cloud: TMPDIR for it is the checkout's parent" \
+            test "$(rig_bd_tmpdir "$s")" = "$cloud"
+    else
+        check "$mode: no TMPDIR needed" test -z "$(rig_bd_tmpdir "$s")"
+    fi
     check "$mode: beads.role is maintainer" test "$(git -C "$s" config beads.role)" = maintainer
     check "$mode: bd prints no beads.role warning" \
         bash -c "! (cd '$s' && bd list </dev/null 2>&1) | grep -q 'beads.role'"
@@ -133,8 +169,8 @@ for mode in embedded server; do
     check "$mode: the memory arrived" \
         grep -q 'session memory' <(cd "$m/after" && bd recall session-fact </dev/null 2>/dev/null)
 
-    for d in seed session ci after; do
-        ( cd "$m/$d" && bd dolt stop ) </dev/null >/dev/null 2>&1 || true
+    for d in "$m/seed" "$s" "$m/ci" "$m/after"; do
+        ( cd "$d" && bd dolt stop ) </dev/null >/dev/null 2>&1 || true
     done
 done
 

@@ -65,6 +65,7 @@ _rig_member_setup() {
 }
 
 beads_ready=""
+bd_tmpdir=""
 for repo in "${repos[@]}"; do
     name="$(rig_safe_name "$(basename "$repo")")"
 
@@ -85,6 +86,21 @@ for repo in "${repos[@]}"; do
     fi
 
     if [ -d "$repo/.beads" ]; then
+        # bd refuses this layout's store unless TMPDIR covers it: set it for
+        # the hook's own bd calls and, through CLAUDE_ENV_FILE, for the
+        # session's. One value has to cover every such repo.
+        t="$(rig_bd_tmpdir "$repo")"
+        if [ -n "$t" ]; then
+            [ -z "$bd_tmpdir" ] || t="$(rig_common_dir "$bd_tmpdir" "$t")"
+            bd_tmpdir="$t"
+            export TMPDIR="$t"
+            if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
+                line="$(printf 'export TMPDIR=%q' "$t")"
+                grep -qxF -- "$line" "$CLAUDE_ENV_FILE" 2>/dev/null ||
+                    printf '%s\n' "$line" >> "$CLAUDE_ENV_FILE"
+            fi
+            rig_log "$name: TMPDIR set to the checkout's parent, so bd accepts its store"
+        fi
         if [ -z "$beads_ready" ]; then
             beads_ready=no
             rig_install_dolt </dev/null && rig_install_bd </dev/null && beads_ready=yes

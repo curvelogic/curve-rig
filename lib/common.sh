@@ -189,6 +189,44 @@ rig_repo_owner() {
     printf '%s\n' "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]'
 }
 
+# --- bd's home-folder check -----------------------------------------------
+
+# The user's home folder as bd sees it: from the account database, which
+# setting HOME does not change; $HOME if the account has no entry.
+_rig_account_home() {
+    local entry=""
+    entry="$(getent passwd "$(id -u)" 2>/dev/null)" && entry="$(cut -d: -f6 <<< "$entry")"
+    printf '%s\n' "${entry:-$HOME}"
+}
+
+# The deepest directory containing both absolute paths $1 and $2.
+rig_common_dir() {
+    local a="${1%/}/" b="${2%/}/"
+    while [ "${b#"$a"}" = "$b" ]; do a="${a%/*/}/"; done
+    a="${a%/}"
+    printf '%s\n' "${a:-/}"
+}
+
+# The TMPDIR bd needs before it will open REPO's beads store, or nothing
+# when it needs none. bd refuses a store under /home/ but outside the
+# user's home folder ("BEADS_DIR points to unsafe location" from
+# `bd context`), which is the cloud-session layout: root, with checkouts in
+# /home/user. A store inside the system temp folder is exempt, so the
+# answer is the checkout's parent. Setting HOME instead does not work: bd
+# reads the home folder from the account database, and other tools then
+# create folders under the new HOME. Nothing when $TMPDIR already covers
+# the store.
+rig_bd_tmpdir() {
+    local beads home tmp
+    beads="$(cd "$1/.beads" 2>/dev/null && pwd -P)" || return 0
+    case "$beads" in /home/*) ;; *) return 0 ;; esac
+    home="$(_rig_account_home)"
+    case "$beads/" in "${home%/}"/*) return 0 ;; esac
+    tmp="${TMPDIR:-/tmp}"
+    case "$beads/" in "${tmp%/}"/*) return 0 ;; esac
+    dirname "$(cd "$1" && pwd -P)"
+}
+
 # A name safe to print into agent context: anything but letters, digits,
 # '.', '_' and '-' becomes '?'. Directory names are chosen by whoever cloned
 # them, and the hook's stdout is read by the agent.
