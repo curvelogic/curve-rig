@@ -67,12 +67,15 @@ org-level tracker. rig has no beads store of its own (see `CLAUDE.md`).
    it*).
 2. **Second member**, replacing its own copies of setup, relay and reviewer.
 3. **Merge the second review's fixes.**
-4. **Go public**: squash history to a single commit, confirm the denylist
+4. **Guard Dependabot branches in the hook**: skip a member's
+   `.rig/setup.sh` when its checkout is on a `dependabot/` branch, so a
+   session never installs a bump's packages with its credentials.
+5. **Go public**: squash history to a single commit, confirm the denylist
    scan is clean, make the repository public, and tag a release. Squashing
    clears `main`'s history only: every PR's commits stay reachable from
    its `refs/pull/<n>/head`, and its title, description and comments stay
    on its page, so those must be clean too.
-5. **Prove hands-off delivery**: point a fresh cloud environment's setup
+6. **Prove hands-off delivery**: point a fresh cloud environment's setup
    script at the release with `--trusted-owners` (README → *Using rig in a
    cloud environment*), start a session, and confirm the hook provisioned
    every member with nothing run by hand. Then move the other environments

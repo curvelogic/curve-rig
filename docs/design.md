@@ -166,13 +166,18 @@ Nothing else is required; a repo with none of these is left alone.
   a PR from outside (from a fork, or opened by any account other than the
   one agents act as and the repository's Dependabot): those are the
   owner's to merge. A Dependabot PR on a `dependabot/` branch in the
-  repository is from inside for deciding who merges it, and goes through
-  every gate like any other, but no session ever runs its code: it is
-  third-party code chosen upstream, so the reviewer reads it and relies on
-  CI's result for the check. `rig-review` cannot tell the owner from an
-  agent acting as the owner, nor see who pushed to a branch in the
-  repository; for a repository whose only writer is the owner, that is the
-  same trust.
+  repository is from inside for deciding who merges it, stays the owner's
+  unless a row of the member's `REVIEW.md` covers it, and goes through
+  every gate like any other. Its code is third-party code chosen
+  upstream, so `rig-review` never runs it: it reads the diff and relies on
+  CI's result for the check. Members' `CLAUDE.md` tells every session the
+  same (`templates/CLAUDE.md`), but nothing enforces it yet: the hook
+  trusts a member by its origin owner, not its branch, so a session
+  opened on a `dependabot/` branch runs that branch's `.rig/setup.sh`,
+  which can install the bumped packages (`plan.md` → *Next*).
+  `rig-review` cannot tell the owner from an agent acting as the owner,
+  nor see who pushed to a branch in the repository; for a repository
+  whose only writer is the owner, that is the same trust.
 
 ## Naming
 

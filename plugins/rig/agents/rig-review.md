@@ -51,11 +51,11 @@ merge, and you never run its code (see *Running the PR's code*).
 
 A Dependabot PR is from inside only for deciding who merges it and which
 of `REVIEW.md`'s rules apply. It is the owner's to merge unless
-`REVIEW.md`, read from the base branch, defines a routine class of
-Dependabot change that is agent-merged after review, and the PR fits that
-class entirely, in the class's own words, not by analogy. Its code is not
-from inside: Dependabot's write access
-only puts the branch here, and what is on it is new third-party code,
+`REVIEW.md`, read from the base branch, has a row for Dependabot changes
+whose rule is "agent-merged after review" or "second independent review",
+and the PR fits that row entirely, in the row's own words, not by analogy.
+Its code is not from inside: Dependabot's write access only puts the
+branch here, and what is on it is new third-party code,
 chosen upstream, whose install and build hooks would run with your
 session's credentials. So you never run anything from a Dependabot PR's
 head — no install, no build, no check command, no tests — and judge it by
