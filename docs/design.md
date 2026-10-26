@@ -183,7 +183,14 @@ Nothing else is required; a repo with none of these is left alone.
   same (`templates/CLAUDE.md`), but nothing enforces it yet: the hook
   trusts a member by its origin owner, not its branch, so a session
   opened on a `dependabot/` branch runs that branch's `.rig/setup.sh`,
-  which can install the bumped packages (`plan.md` → *Next*).
+  which can install the bumped packages (`plan.md` → *Next*). A member's
+  `REVIEW.md` may let agents merge patch and minor bumps, of a tool the
+  check runs too (version and lockfile only), and action bumps in
+  workflows that declare read-only `permissions:` and use no secrets, and
+  may give major-version bumps a second independent review instead of the
+  owner. What stops a bad release there is Dependabot's cooldown, CI, and
+  that `rig-review` reads the change and its release notes and runs none
+  of it.
   `rig-review` cannot tell the owner from an agent acting as the owner,
   nor see who pushed to a branch in the repository; for a repository
   whose only writer is the owner, that is the same trust.

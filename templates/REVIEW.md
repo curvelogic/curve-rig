@@ -24,21 +24,40 @@ Criteria applied to every PR, on top of green CI.
 | <path or kind of change> | the owner merges |
 | `.github/`, `.beads/` configuration, `.claude/`, `.rig/` | the owner merges |
 | A PR from outside (from a fork, or opened by any account or bot other than the one agents act as and the repository's Dependabot) | the owner merges |
-<!-- Optional: a routine class for dependency bumps, which rig-review may
-     merge after review. Without a row like this, every Dependabot PR is
-     the owner's. The row carries its own limits, so keep it whole. A
-     tool that CI or the check runs (a linter, test runner or GitHub
-     Action) is CI that gates merging: a Dependabot bump of one stays the
-     owner's, even with the class below adopted. rig-review never runs a
-     Dependabot PR's code, so it merges on CI's result: adopt the class
-     only where CI runs everything the check command runs, on Dependabot's
-     PRs too. Before
-     adopting it, set Dependabot's `cooldown` so a release waits some days
-     before it is proposed. To adopt it, move the row into the table
-     above; give major-version bumps a row of their own if you want them
-     reviewed twice (say, "second independent review").
+<!-- Optional: routine classes for dependency bumps, which rig-review may
+     merge after review. Without a row like these, every Dependabot PR is
+     the owner's. Each row carries its own limits, so keep it whole.
+     rig-review never runs a Dependabot PR's code, so it merges on CI's
+     result: adopt a class only where CI runs everything the check command
+     runs, on Dependabot's PRs too. Before adopting one, set Dependabot's
+     `cooldown` so a release waits some days before it is proposed. To
+     adopt a row, move it into the table above.
+
+     Adopt one of the next two rows, not both. The first leaves out the
+     tools CI or the check runs (a linter, test runner or type checker
+     installed as a package): rig-review counts those as CI that gates
+     merging, so a bump of one stays the owner's. The second also covers
+     them, version and lockfile only: a change to a tool's configuration,
+     or to how the check invokes it, stays the owner's, and rig-review
+     reads the tool's release notes for anything that makes it check
+     less. A GitHub Action is not a package: its bumps come under the
+     routine-CI class below.
 
 | A Dependabot PR that bumps one existing dependency to a patch or minor release, and changes nothing but that dependency's version and the lockfile entries the bump brings: no package added to the lockfile, none moved across a major version, none fetched from a different source (registry, URL or git repository), and no tool CI or the check runs. On a 0.x version, a change to the first non-zero part (0.3 to 0.4, 0.0.3 to 0.0.4) is a major bump. | agent-merged after review |
+
+| A Dependabot PR that bumps one existing dependency, a tool CI or the check runs among them, to a patch or minor release, and changes nothing but that dependency's version and the lockfile entries the bump brings: no package added to the lockfile, none moved across a major version, none fetched from a different source (registry, URL or git repository), and no change to a tool's configuration or to how the check invokes it. For a tool, nothing in its release notes from the old version to the new disables, skips or loosens a check. On a 0.x version, a change to the first non-zero part (0.3 to 0.4, 0.0.3 to 0.0.4) is a major bump. | agent-merged after review |
+
+     Optional, with one of the rows above: major-version bumps get a
+     second independent review instead of the owner. Neither reviewer runs
+     the PR's code, and CI's result on the current head stands in for the
+     check. Each reviewer reads, for itself, the upstream release notes
+     for every version the bump crosses, of the dependency and of each
+     package the lockfile moves across a major version, and checks where
+     this repository uses what they break; a breaking change that reaches
+     code CI does not exercise blocks the PR. The row covers tools CI or
+     the check runs only if the Dependabot row you adopted does.
+
+| A Dependabot PR that fits the Dependabot row of this table in every respect but one: the dependency it bumps, or a package whose lockfile entry the bump brings, moves across a major version (on 0.x, a change to the first non-zero part). | second independent review |
 -->
 
 <!-- Optional: a routine class of change to CI that gates merging, which
@@ -53,9 +72,16 @@ Criteria applied to every PR, on top of green CI.
      owner's, and so does any workflow holding write access or a secret
      (one with no `permissions:` counts as write): the class reaches only
      workflows that declare read-only `permissions:` and use no secrets.
-     To adopt it, move the row into the table above; if another row also
-     covers workflows (`.github/`, say), add "this class wins
-     over it" to this row, or the stricter row applies.
+     To bring a workflow within it, declare read-only access at its top
+     level (`permissions:` with `contents: read`, say), grant no job more,
+     and use no `secrets.*`; pin each action to a full SHA with its
+     version in a comment, a form Dependabot keeps. A Dependabot PR that
+     only bumps actions and fits this class entirely is covered by it;
+     one that falls outside is the owner's, and rig-review says why
+     ("workflow has no `permissions:` block", say). To adopt the class,
+     move the row into the table above; if another row also covers
+     workflows (`.github/`, say), add "this class wins over it" to this
+     row, or the stricter row applies.
 
 | Only external actions' `uses:` refs change | agent-merged after review |
 -->
