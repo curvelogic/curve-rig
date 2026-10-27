@@ -13,7 +13,10 @@
 #     there and writing through a symlinked settings file;
 #   - adds rig's attribution rule (templates/user-CLAUDE.md: no session
 #     links in commits or PR text) to ~/.claude/CLAUDE.md, between its
-#     markers, keeping everything else in the file.
+#     markers, keeping everything else in the file;
+#   - with RIG_AGENT_MERGE=1 only, adds permission rules that let a session
+#     run a PR merge and a branch deletion, and deny gh's --admin merge
+#     (see README). Unset, it writes no permission rules and removes none.
 # Idempotent: re-running replaces rig's own entries and nothing else.
 #
 # RIG_HOME defaults to the checkout this script lives in.
@@ -33,7 +36,7 @@ while [ "$#" -gt 0 ]; do
     case "$1" in
         --trusted-owners) owners_arg="${2:-}"; shift 2 ;;
         --trusted-owners=*) owners_arg="${1#*=}"; shift ;;
-        -h|--help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) rig_warn "unknown argument: $1"; exit 2 ;;
     esac
 done
@@ -87,7 +90,11 @@ fi
 
 tmp="$(mktemp "$target.XXXXXX")"
 trap 'rm -f "$tmp"' EXIT
-jq --arg hook "$HOOK" --arg home "$RIG_HOME" '
+# With RIG_AGENT_MERGE=1, also the permission rules for an agent merge, each
+# added once, after whatever rules are already there.
+jq --arg hook "$HOOK" --arg home "$RIG_HOME" \
+   --arg merge "${RIG_AGENT_MERGE:-}" '
+    def add_once($rules): (. // []) + ($rules - (. // []));
     def rig_entry:
         [ .hooks[]?.command // empty | strings
           | contains($home + "/hooks/session-start.sh") ] | any;
@@ -96,6 +103,12 @@ jq --arg hook "$HOOK" --arg home "$RIG_HOME" '
         + [ { matcher: "startup",
               hooks: [ { type: "command", command: ($hook | @sh), timeout: 900 } ] } ]
     )
+    | if $merge == "1" then
+        .permissions.allow |= add_once([ "Bash(gh pr merge:*)",
+                                         "mcp__github__merge_pull_request",
+                                         "Bash(git push origin --delete:*)" ])
+        | .permissions.deny |= add_once([ "Bash(gh pr merge *--admin*)" ])
+      else . end
 ' "$target" > "$tmp"
 chmod --reference="$target" "$tmp" 2>/dev/null || true
 mv -f "$tmp" "$target"

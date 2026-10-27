@@ -2,7 +2,8 @@
 # bin/rig-lib-test — regression tests for provisioning, the installer and
 # the denylist check, without GitHub, bd or dolt: the trust check, repo
 # discovery, the hook's stdin and stdout, the beads bootstrap's clean-up,
-# settings.json handling, and what the denylist scan covers.
+# settings.json handling and the opt-in merge rules, and what the denylist
+# scan covers.
 #
 # Usage: rig-lib-test
 #
@@ -28,7 +29,7 @@ git config --global user.email "lib-test@example.com"
 git config --global init.defaultBranch main
 export HOME="$work/home" XDG_CONFIG_HOME="$work/config" XDG_STATE_HOME="$work/state"
 export RIG_LOCAL_BIN="$work/home/.local/bin"
-unset RIG_TRUSTED_OWNERS RIG_DENYLIST RIG_PR_BRANCH RIG_PR_TITLE RIG_PR_BODY CLAUDE_CONFIG_DIR
+unset RIG_TRUSTED_OWNERS RIG_AGENT_MERGE RIG_DENYLIST RIG_PR_BRANCH RIG_PR_TITLE RIG_PR_BODY CLAUDE_CONFIG_DIR
 mkdir -p "$HOME"
 
 # shellcheck source=../lib/common.sh
@@ -328,6 +329,33 @@ check "a new CLAUDE.md is the rule alone" cmp -s "$RIG_HOME/templates/user-CLAUD
 printf '{}\n{}\n' > "$work/multi.json"; mkdir -p "$work/c2"; cp "$work/multi.json" "$work/c2/settings.json"
 refute "multi-document settings.json refused" inst "$work/c2"
 check "refused settings.json untouched" cmp -s "$work/multi.json" "$work/c2/settings.json"
+# Agent-merge rules: none unless RIG_AGENT_MERGE=1; then each once, after
+# the rules already there, which are kept.
+check "unset: no permission rules written" jq -e 'has("permissions") | not' "$work/real/settings.json"
+mkdir -p "$work/m1"
+echo '{"theme":"dark","permissions":{"allow":["Bash(make test)","Bash(gh pr merge:*)"],"deny":["Read(./.env)"],"defaultMode":"auto"}}' \
+    > "$work/m1/settings.json"
+cp "$work/m1/settings.json" "$work/m1-before.json"
+check "unset: install over existing rules" inst "$work/m1"
+check "unset: existing rules untouched" jq -e --slurpfile b "$work/m1-before.json" \
+    ".permissions == \$b[0].permissions" "$work/m1/settings.json"
+mergeinst() { RIG_AGENT_MERGE=1 inst "$1"; }
+check "set: install succeeds" mergeinst "$work/m1"
+check "set: install twice" mergeinst "$work/m1"
+check "set: allow rules added once, existing kept first" jq -e '.permissions.allow == [
+    "Bash(make test)", "Bash(gh pr merge:*)",
+    "mcp__github__merge_pull_request", "Bash(git push origin --delete:*)" ]' "$work/m1/settings.json"
+check "set: --admin denied once, existing deny kept" jq -e '.permissions.deny == [
+    "Read(./.env)", "Bash(gh pr merge *--admin*)" ]' "$work/m1/settings.json"
+check "set: other settings kept" jq -e '.theme == "dark" and .permissions.defaultMode == "auto"
+    and ([.hooks.SessionStart[] | select(.matcher == "startup")] | length == 1)' "$work/m1/settings.json"
+mkdir -p "$work/m2"
+check "set: install with no settings.json" mergeinst "$work/m2"
+check "set: rules written to a new settings.json" jq -e '(.permissions.allow | length == 3)
+    and (.permissions.deny | length == 1)' "$work/m2/settings.json"
+cp "$work/m1/settings.json" "$work/m1-merged.json"
+check "unset after set: install succeeds" inst "$work/m1"
+check "unset after set: rules not removed" cmp -s "$work/m1-merged.json" "$work/m1/settings.json"
 
 # --- The denylist check ---------------------------------------------------
 

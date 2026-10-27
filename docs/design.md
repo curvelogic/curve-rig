@@ -62,6 +62,11 @@ public by then). It:
 - adds the attribution rule in `templates/user-CLAUDE.md` (no session links
   in commits or PR text) to `~/.claude/CLAUDE.md`, between markers, keeping
   the rest of the file.
+- with `RIG_AGENT_MERGE=1` only, adds user-level permission rules that let
+  a session run a PR merge and a branch deletion and deny `gh`'s `--admin`
+  merge (README → *Letting agents merge*). User level because a
+  repository's `.claude/settings.json` would reach every local session on
+  it too.
 
 **Stage 2 — `hooks/session-start.sh`**, a user-level SessionStart hook, so it
 fires in single- and multi-repo sessions alike — once, at startup, not on
