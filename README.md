@@ -72,6 +72,61 @@ stays. A user's CLAUDE.md takes precedence over the default attribution
 guidance. The rule's text is `templates/user-CLAUDE.md`; on a machine
 without the installer, add it to `~/.claude/CLAUDE.md` by hand.
 
+### Letting agents merge (opt-in)
+
+In auto mode a session's permission check refuses `gh pr merge` and
+branch deletion, so even a PR that a repository's `REVIEW.md` lets an
+agent merge, and that `rig-review` has passed, falls to the owner. Run the
+installer with `RIG_AGENT_MERGE=1` to change that for the environment:
+
+```bash
+RIG_AGENT_MERGE=1 "$RIG_HOME/bin/rig-install" --trusted-owners acme
+```
+
+It adds these rules to the user-level `~/.claude/settings.json`, each
+once, keeping every rule already there:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh pr merge:*)",
+      "mcp__github__merge_pull_request",
+      "Bash(git push origin --delete:*)"
+    ],
+    "deny": ["Bash(gh pr merge *--admin*)"]
+  }
+}
+```
+
+- **Scope.** The rules reach only sessions in an environment whose setup
+  script sets the variable. They are user-level settings in that
+  environment's container, so no repository carries them and no local
+  session on a member repository gets them. Without the variable the
+  installer writes no permission rules, and it never removes any: to turn
+  the switch off, drop the variable and start from a fresh environment.
+- **No merge rights by themselves.** They only stop the permission check
+  refusing the commands. Whether a PR may be merged by an agent is still
+  decided by the repository's `REVIEW.md` and by `rig-review`, and GitHub
+  still enforces the repository's branch protection.
+- **`--admin`**, which bypasses branch protection, is denied, and a deny
+  rule wins over any allow rule in every scope. Like every Bash rule it
+  matches the command text, so it stops the form agents write
+  (`gh pr merge 12 --admin`) but not a spelling such as
+  `gh -R acme/app pr merge 12 --admin`; it is a guard on the usual
+  invocation, not a security boundary
+  ([permissions → What a Bash rule doesn't match](https://code.claude.com/docs/en/permissions#what-a-bash-rule-doesnt-match)).
+- **Auto mode honours them.** Rules matching an action resolve before
+  the classifier runs; auto mode suspends only broad rules that grant
+  arbitrary code execution, such as `Bash(*)`, and keeps narrow ones like
+  these
+  ([permission modes → How the classifier evaluates actions](https://code.claude.com/docs/en/permission-modes#how-the-classifier-evaluates-actions);
+  [auto mode config](https://code.claude.com/docs/en/auto-mode-config)).
+  An environment that sets `autoMode.classifyAllShell` sends the two Bash
+  rules to the classifier anyway.
+- **Branch deletion** may still be refused by the session's git proxy
+  (`docs/design.md`, constraint 5); the rule only lets the command run.
+
 ## Using rig locally
 
 In the member repo's committed `.claude/settings.json`:
