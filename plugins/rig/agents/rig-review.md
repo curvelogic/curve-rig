@@ -392,10 +392,14 @@ Only on a pass, with no hold, no owner rule and no missing second review:
 - Confirm the PR's base is the default branch. A PR based on another
   branch merges cleanly and never arrives.
 - Confirm the head has not moved since you reviewed it.
-- Merge by the method `REVIEW.md` names (squash if it names none), deleting
-  the branch, and pass the reviewed head's SHA with the merge (`gh pr
-  merge --match-head-commit <sha>`, or the API's `sha`), so a push since
-  you looked is refused rather than merged.
+- Merge by the method `REVIEW.md` names (squash if it names none), with
+  `gh pr merge <n> --squash --delete-branch --match-head-commit <sha>`
+  (or `--merge`/`--rebase`) as a command of its own, or the GitHub MCP
+  merge tool with the reviewed head's SHA, so a push since you looked is
+  refused rather than merged. Use nothing else: those are the forms the
+  installer's `RIG_AGENT_MERGE=1` rules allow, and auto mode refuses a raw
+  `gh api` merge or branch deletion, or a merge chained with other
+  commands.
 - Confirm the content landed, by content: after fetching, `git diff
   <reviewed head> origin/<default branch> -- <every path the PR touched>`
   is empty. A merge reported as done is not evidence.

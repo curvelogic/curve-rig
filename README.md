@@ -99,6 +99,10 @@ once, keeping every rule already there:
 }
 ```
 
+The rules match those commands only: a merge through `gh api`, or one
+chained with other commands in a single shell call, is still refused.
+`rig-review` merges with `gh pr merge … --match-head-commit` on its own.
+
 - **Scope.** The rules reach only sessions in an environment whose setup
   script sets the variable. They are user-level settings in that
   environment's container, so no repository carries them and no local
