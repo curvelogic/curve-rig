@@ -99,9 +99,12 @@ once, keeping every rule already there:
 }
 ```
 
-The rules match those commands only: a merge through `gh api`, or one
-chained with other commands in a single shell call, is still refused.
-`rig-review` merges with `gh pr merge … --match-head-commit` on its own.
+The rules match those commands only, and auto mode still checks
+anything else, so a merge through `gh api` can be refused. In a cloud
+session `gh pr merge` fails anyway (it needs GraphQL, which cloud
+sessions refuse), so `rig-review` merges there with the MCP tool and the
+reviewed head's SHA, then deletes the branch with `git push origin
+--delete` as a separate command.
 
 - **Scope.** The rules reach only sessions in an environment whose setup
   script sets the variable. They are user-level settings in that
