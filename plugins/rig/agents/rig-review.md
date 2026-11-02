@@ -392,10 +392,18 @@ Only on a pass, with no hold, no owner rule and no missing second review:
 - Confirm the PR's base is the default branch. A PR based on another
   branch merges cleanly and never arrives.
 - Confirm the head has not moved since you reviewed it.
-- Merge by the method `REVIEW.md` names (squash if it names none), deleting
-  the branch, and pass the reviewed head's SHA with the merge (`gh pr
-  merge --match-head-commit <sha>`, or the API's `sha`), so a push since
-  you looked is refused rather than merged.
+- Merge by the method `REVIEW.md` names (squash if it names none),
+  passing the reviewed head's SHA so that a push since you looked is
+  refused rather than merged. In a cloud session use the GitHub MCP merge
+  tool (`mcp__github__merge_pull_request` with `merge_method` and
+  `expectedHeadSha`): `gh pr merge` needs GraphQL, which cloud sessions
+  refuse. Elsewhere, `gh pr merge <n> --squash --match-head-commit <sha>`
+  (or `--merge`/`--rebase`) works too. Run the merge as a step of its own,
+  and never merge through a raw `gh api` call: these are the forms the
+  installer's `RIG_AGENT_MERGE=1` rules allow.
+- Then delete the branch, unless the repository deletes merged branches
+  itself, with `git push origin --delete <branch>` as a command of its
+  own. If that is refused, say so and name the branch.
 - Confirm the content landed, by content: after fetching, `git diff
   <reviewed head> origin/<default branch> -- <every path the PR touched>`
   is empty. A merge reported as done is not evidence.
