@@ -152,11 +152,101 @@ rig_beads_role() {
     git -C "$1" config --local beads.role maintainer 2>/dev/null || true
 }
 
+# --- A store kept on a branch ----------------------------------------------
+# A member may keep its beads store on an ordinary branch instead of
+# refs/dolt/data, by naming the ref in a committed .rig/beads-ref, e.g.
+#   refs/heads/beads-data
+# A cloud session can push a branch, so with this it pushes the store
+# itself and needs no relay (docs/relay.md, "A store on a branch"). bd
+# cannot clone from or add such a remote (1.3.x has no ref option), so rig
+# does both with the dolt CLI; bd then pushes and pulls through it as it is.
+
+# The ref named in REPO's .rig/beads-ref; prints nothing when there is no
+# such file. Fails, with a warning, on one that is not a plain branch.
+rig_beads_ref() {
+    local f="$1/.rig/beads-ref" ref
+    [ -e "$f" ] || return 0
+    if [ -L "$f" ] || [ ! -f "$f" ]; then
+        rig_warn "$(rig_safe_name "$(basename "$1")"): .rig/beads-ref is not a regular file"
+        return 1
+    fi
+    ref="$(sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^$/d' "$f" | head -1)"
+    if [[ ! "$ref" =~ ^refs/heads/[A-Za-z0-9_][A-Za-z0-9._/-]{0,99}$ ]] ||
+       ! git check-ref-format "$ref" ||
+       [ "$ref" = refs/heads/__dolt_remote_info__ ]; then
+        rig_warn "$(rig_safe_name "$(basename "$1")"): .rig/beads-ref must name one" \
+            "branch, refs/heads/<name>"
+        return 1
+    fi
+    printf '%s\n' "$ref"
+}
+
+# The dolt git-remote URL of REPO's origin: git+https for github.com,
+# git+file for a local path (tests). Fails for anything else.
+rig_beads_remote_url() {
+    local url path
+    url="$(git -C "$1" remote get-url origin 2>/dev/null)" || return 1
+    if rig_repo_owner "$1" >/dev/null; then
+        path="${url#*github.com}"; path="${path#[:/]}"; path="${path%/}"; path="${path%.git}"
+        printf 'git+https://github.com/%s.git\n' "$path"
+        return 0
+    fi
+    case "$url" in
+        /*)       printf 'git+file://%s\n' "$url" ;;
+        file://*) printf 'git+%s\n' "$url" ;;
+        *) return 1 ;;
+    esac
+}
+
+# The embedded store's database directory, .beads/embeddeddolt/<name>, from
+# .beads/metadata.json. Fails for any other storage mode: rig materialises
+# only an embedded store from a branch.
+rig_beads_embedded_dir() {
+    local meta="$1/.beads/metadata.json" mode db
+    command -v jq >/dev/null 2>&1 || { rig_warn "jq is not on PATH"; return 1; }
+    [ -f "$meta" ] && [ ! -L "$meta" ] || { rig_warn "no .beads/metadata.json"; return 1; }
+    mode="$(jq -r '.dolt_mode // "embedded"' "$meta" 2>/dev/null)" || mode=""
+    db="$(jq -r '.dolt_database // empty' "$meta" 2>/dev/null)" || db=""
+    if [ "$mode" != embedded ]; then
+        rig_warn "a beads store on a branch must be embedded (this one is ${mode:-unreadable})"
+        return 1
+    fi
+    [[ "$db" =~ ^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$ ]] ||
+        { rig_warn "no usable dolt_database in .beads/metadata.json"; return 1; }
+    printf '%s\n' "$1/.beads/embeddeddolt/$db"
+}
+
+# The URL and ref of the origin remote of the dolt database at DIR, as
+# "<url> <ref>" (ref empty for an ordinary remote).
+rig_beads_origin_of() {
+    jq -r '.remotes.origin // empty | "\(.url) \(.params.git_ref // "")"' \
+        "$1/.dolt/repo_state.json" 2>/dev/null
+}
+
+# Point the dolt database at DIR's origin remote at URL's REF, unless it
+# already is. The database keeps its rows; only where it pushes changes.
+rig_beads_point_origin() {
+    local dir="$1" url="$2" ref="$3"
+    [ "$(rig_beads_origin_of "$dir")" = "$url $ref" ] && return 0
+    ( cd "$dir" &&
+      { ! timeout 30 dolt remote </dev/null 2>/dev/null | grep -qx origin ||
+        timeout 30 dolt remote remove origin </dev/null; } &&
+      timeout 30 dolt remote add --ref "$ref" origin "$url" </dev/null
+    ) >>"$RIG_LOG" 2>&1
+}
+
+_rig_dolt_clone_ref() {
+    mkdir -p "$(dirname "$1")" &&
+        cd "$(dirname "$1")" &&
+        timeout "$4" dolt clone --ref "$3" "$2" "$(basename "$1")" </dev/null >>"$RIG_LOG" 2>&1
+}
+
 _rig_bd_bootstrap() {
     cd "$1" && timeout "$2" bd bootstrap --yes </dev/null >>"$RIG_LOG" 2>&1
 }
 
-# Materialise the beads store for one repo from refs/dolt/data, over https.
+# Materialise the beads store for one repo from refs/dolt/data, over https,
+# or, where the repo names one in .rig/beads-ref, from that branch.
 #
 # The tracked .beads/config.yaml usually names an ssh remote and the
 # container has no ssh, so the remote is rewritten to https for the
@@ -166,6 +256,7 @@ _rig_bd_bootstrap() {
 # existing store may hold local writes not yet relayed.
 rig_bootstrap_beads() {
     local repo="$1" beads head_before head_after before_file t d status=0 name
+    local ref="" url="" dir=""
     local -a pre_existing=()
     beads="$repo/.beads"
     name="$(rig_safe_name "$(basename "$repo")")"
@@ -181,7 +272,18 @@ rig_bootstrap_beads() {
     esac
     chmod 700 "$beads" 2>/dev/null || true
 
+    ref="$(rig_beads_ref "$repo")" || return 1
+    if [ -n "$ref" ]; then
+        url="$(rig_beads_remote_url "$repo")" ||
+            { rig_warn "$name: origin is not a github.com or local repository"; return 1; }
+        dir="$(rig_beads_embedded_dir "$repo")" || { rig_warn "$name: beads store not materialised"; return 1; }
+    fi
+
     if _rig_beads_store_ok "$repo"; then
+        if [ -n "$ref" ] && ! rig_beads_point_origin "$dir" "$url" "$ref"; then
+            rig_warn "$name: could not point the beads store at $ref (see $RIG_LOG)"
+            return 1
+        fi
         rig_beads_role "$repo"
         rig_log "$name: beads store already materialised"
         return 0
@@ -200,9 +302,12 @@ rig_bootstrap_beads() {
     before_file="$(mktemp)"
     git -C "$repo" status --porcelain -z > "$before_file" 2>/dev/null || true
 
-    rig_beads_config_https "$repo"
-
-    rig_run _rig_bd_bootstrap "$repo" "$t" || status=$?
+    if [ -n "$ref" ]; then
+        rig_run _rig_dolt_clone_ref "$dir" "$url" "$ref" "$t" || status=$?
+    else
+        rig_beads_config_https "$repo"
+        rig_run _rig_bd_bootstrap "$repo" "$t" || status=$?
+    fi
 
     rig_restore_all
     _rig_beads_restore_tree "$repo" "$before_file"
@@ -219,7 +324,7 @@ rig_bootstrap_beads() {
 
     if [ "$status" -eq 0 ] && _rig_beads_store_ok "$repo"; then
         rig_beads_role "$repo"
-        rig_log "$name: beads store materialised, $(rig_beads_open_count "$repo") open issues"
+        rig_log "$name: beads store materialised${ref:+ from $ref}, $(rig_beads_open_count "$repo") open issues"
         return 0
     fi
     # An empty store would read as an empty tracker rather than a broken one,

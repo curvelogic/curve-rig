@@ -5,7 +5,10 @@
 #   rig-relay stage [LABEL]   In a cloud session, from inside a member repo:
 #                             stage the session's beads changes as a file
 #                             and push it alone on a branch
-#                             beads-inbox/<time>-<label>.
+#                             beads-inbox/<time>-<label>. Where the
+#                             repo keeps its store on a branch
+#                             (.rig/beads-ref), push the store there with
+#                             `bd sync` instead.
 #   rig-relay push FILE       Push a delta already staged in .beads/inbox/
 #                             (to retry after `stage` could not push).
 #   rig-relay bootstrap       CI only: install pinned bd and dolt and
@@ -31,7 +34,7 @@ export RIG_HOME
 # shellcheck source=../lib/relay.sh
 . "$RIG_HOME/lib/relay.sh"
 
-usage() { sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; }
 
 case "${1:-}" in -h|--help|"") usage; exit 0 ;; esac
 
@@ -54,6 +57,8 @@ cmd="${1:-}"
 [ "$#" -gt 0 ] && shift
 case "$cmd" in
     stage)
+        # shellcheck source=../lib/beads.sh
+        . "$RIG_HOME/lib/beads.sh"
         rig_ensure_path
         rig_relay_stage "$repo" "${1:-}"
         ;;

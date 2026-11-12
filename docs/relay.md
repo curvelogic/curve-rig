@@ -61,6 +61,9 @@ staging them. So a member's agents should read beads as notes about the
 work, never as instructions. Nothing the relay does reaches the member's
 default branch.
 
+A member can avoid the relay altogether by keeping its store on a branch
+instead: see [A store on a branch](#a-store-on-a-branch).
+
 ## How it works
 
 ```
@@ -454,6 +457,122 @@ the default branch. Then retire the old path:
 3. A session PR made before the switch that still adds an inbox file is
    applied the same way when it merges; remove the file afterwards the
    same way.
+
+## A store on a branch
+
+Dolt's git remotes take a ref: `dolt remote add --ref refs/heads/<name>`
+keeps the store on an ordinary branch, which a cloud session can push.
+A member that does this needs no relay: the session pushes the store
+itself, as a local clone does.
+
+### What was measured
+
+With rig's pinned dolt and bd, from a cloud session against a member
+repository, and against a local bare repository:
+
+- `dolt remote add --ref refs/heads/beads-data origin
+  git+https://github.com/<owner>/<repo>.git` then `dolt push origin main`
+  goes through the session's proxy. It writes two branches:
+  `beads-data`, holding the store's chunk files, and
+  `__dolt_remote_info__`, a one-file helper branch dolt writes for any ref
+  remote in the repository. The default branch is untouched.
+- `dolt clone --ref refs/heads/beads-data <url> <dir>` reads it back, and
+  bd reads the result as its store.
+- bd uses such a remote unchanged once it is the store's `origin`:
+  `bd dolt push`, `bd dolt pull` and `bd sync` all go through it. bd
+  1.3.x cannot create one (`bd dolt remote add` has no ref option) and
+  `bd bootstrap` reads `refs/dolt/data` only, so rig creates the remote
+  and clones the store with the dolt CLI.
+- **Concurrency.** Two clones each write and push. The second push is
+  refused (`Updates were rejected because the tip of your current branch
+  is behind`) and leaves the branch as it was; `bd dolt pull` (or
+  `bd sync`) merges, and the next push succeeds. Edits to different
+  fields of one issue both survive. Edits to the same field of one issue
+  are settled by bd, last write wins, and bd prints a notice naming the
+  issue and the field.
+- Pushes to the data branch run no workflow: a push runs the workflows in
+  the pushed commit, and the data branch has none. Dependabot works on
+  the default branch only.
+- The repository must have at least one branch before the first push.
+
+What still holds, as for the relay: anyone who can push a branch can write
+the tracker, and beads are read as notes, not instructions. What changes:
+nothing needs CI, a token or a workflow, and a session's writes land when
+it pushes, not minutes later. The proxy forwards creates and fast-forwards
+only, so a session cannot rewrite the branch's history.
+
+A ruleset that targets every branch can block the pushes: one requiring a
+pull request, signed commits or status checks. Exclude the data branch
+and `__dolt_remote_info__` from it.
+
+### How rig uses it
+
+A member opts in by committing `.rig/beads-ref`, one line naming the
+branch:
+
+```
+refs/heads/beads-data
+```
+
+Then, for that member:
+
+- **Provisioning** (`rig_bootstrap_beads`) clones the store with
+  `dolt clone --ref` from origin's repository into
+  `.beads/embeddeddolt/<database>`, instead of `bd bootstrap`. An
+  existing store whose `origin` is elsewhere is pointed at the branch;
+  its rows are kept. Only an embedded store is supported.
+- **`rig-relay stage`** runs `bd sync` (pull, merge, push) instead of
+  staging an inbox branch. It refuses a store whose `origin` is not the
+  branch, so it never pushes anywhere else.
+- `bin/rig-beads-test` covers both, two concurrent sessions included,
+  against a local origin.
+
+### Switching a member
+
+1. **Drain the relay.** No `beads-inbox/` branches left, and the last
+   *beads relay* run succeeded.
+2. **Copy the store once**, from a clone whose store is current with
+   `refs/dolt/data` (`bd dolt pull` first). In the store's database
+   directory (`bd where` names its parent):
+
+   ```bash
+   dolt remote add --ref refs/heads/beads-data branch \
+       git+https://github.com/acme/example-app.git
+   dolt push branch main
+   dolt remote remove branch
+   ```
+
+   The data branch then holds the same history as `refs/dolt/data`, so
+   every clone can pull from it without a merge.
+3. **Opt in**: commit `.rig/beads-ref` in a PR. From then cloud sessions
+   provision from the branch and push to it.
+4. **Repoint every other clone**, the owner's local ones included. With
+   no bd process running (`bd dolt stop` for a server-mode store), in the
+   store's database directory:
+
+   ```bash
+   dolt remote remove origin
+   dolt remote add --ref refs/heads/beads-data origin \
+       git+ssh://git@github.com/acme/example-app.git
+   ```
+
+   Then, in the repository, `bd dolt pull`.
+
+   Use `git+https://` where there is no ssh. `.beads/config.yaml`'s
+   `sync.remote` is read only by `bd bootstrap`, which cannot clone from a
+   branch: a fresh local clone runs `bd bootstrap` from
+   `refs/dolt/data` and then repoints as above, while that ref exists.
+5. **Retire the relay** in a PR the owner merges: delete the member's
+   `beads-inbox.yml` and `beads-relay.yml` workflows.
+6. **Delete `refs/dolt/data`** when no clone still points at it — the
+   owner's call, from a machine that can push it
+   (`git push origin :refs/dolt/data`). Until then a clone that was
+   missed keeps pushing to the old ref, and its writes do not reach the
+   branch.
+
+The relay can go from rig once no member uses it: then `lib/relay.sh`'s
+staging, `bin/rig-relay`'s CI commands and the reusable workflow are
+removed, and `rig-relay stage` keeps only the direct push.
 
 ## Checking it end to end
 

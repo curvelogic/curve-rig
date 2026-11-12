@@ -21,7 +21,7 @@ org-level tracker. rig has no beads store of its own (see `CLAUDE.md`).
   load. With the real owner trusted it installed bd and dolt and
   bootstrapped a member's store in under half a minute, leaving trees clean.
   The setup-script path is proven with a stand-in (`design.md`,
-  constraints 8 and 9); rig's own is proven once it is public (step 5). bd ≥ 1.3 appends patterns to a member's tracked
+  constraints 8 and 9); rig's own is proven once it is public (step 6). bd ≥ 1.3 appends patterns to a member's tracked
   `.beads/.gitignore` on bootstrap; rig restores the file, but members should
   commit those additions so the tree stays clean under plain `bd`.
 - Beads relay (`docs/relay.md`): `rig-relay stage` in a session pushes the
@@ -69,15 +69,19 @@ org-level tracker. rig has no beads store of its own (see `CLAUDE.md`).
    it*).
 2. **Second member**, replacing its own copies of setup, relay and reviewer.
 3. **Merge the second review's fixes.**
-4. **Guard Dependabot branches in the hook**: skip a member's
+4. **Stores on a branch** (`relay.md` → *A store on a branch*): the
+   pilot member copies its store to a branch and opts in with
+   `.rig/beads-ref`, its clones are repointed, and its relay retired;
+   then every other member, after which the relay is removed from rig.
+5. **Guard Dependabot branches in the hook**: skip a member's
    `.rig/setup.sh` when its checkout is on a `dependabot/` branch, so a
    session never installs a bump's packages with its credentials.
-5. **Go public**: squash history to a single commit, confirm the denylist
+6. **Go public**: squash history to a single commit, confirm the denylist
    scan is clean, make the repository public, and tag a release. Squashing
    clears `main`'s history only: every PR's commits stay reachable from
    its `refs/pull/<n>/head`, and its title, description and comments stay
    on its page, so those must be clean too.
-6. **Prove hands-off delivery**: point a fresh cloud environment's setup
+7. **Prove hands-off delivery**: point a fresh cloud environment's setup
    script at the release with `--trusted-owners` (README → *Using rig in a
    cloud environment*), start a session, and confirm the hook provisioned
    every member with nothing run by hand. Then move the other environments

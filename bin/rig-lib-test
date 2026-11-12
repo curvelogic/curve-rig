@@ -2,8 +2,8 @@
 # bin/rig-lib-test — regression tests for provisioning, the installer and
 # the denylist check, without GitHub, bd or dolt: the trust check, repo
 # discovery, the hook's stdin and stdout, the beads bootstrap's clean-up,
-# settings.json handling and the opt-in merge rules, and what the denylist
-# scan covers.
+# reading .rig/beads-ref, settings.json handling and the opt-in merge
+# rules, and what the denylist scan covers.
 #
 # Usage: rig-lib-test
 #
@@ -257,6 +257,38 @@ stage_says() {   # staging fails, saying $2
 check "a proxied-server store is not staged" stage_says proxied-server 'cannot relay a proxied-server'
 check "staging refuses more than one database" stage_says server 'more than one database'
 
+
+# --- A store on a branch: .rig/beads-ref -----------------------------------
+
+mkrepo "$work/br" https://github.com/acme/app.git
+mkdir -p "$work/br/.rig"
+ref_of() { printf '%s\n' "$1" > "$work/br/.rig/beads-ref"; rig_beads_ref "$work/br" 2>/dev/null; }
+check "no .rig/beads-ref: no ref" test -z "$(rig_beads_ref "$work/o" 2>/dev/null)"
+check "a branch ref is read" test "$(ref_of refs/heads/beads-data)" = refs/heads/beads-data
+check "comments and blank lines are skipped" \
+    test "$(ref_of $'# store\n\n  refs/heads/x/y  ')" = refs/heads/x/y
+for bad_ref in refs/dolt/data refs/tags/v1 beads-data refs/heads/a..b refs/heads/x.lock \
+               refs/heads/ refs/heads/-x 'refs/heads/a b' refs/heads/__dolt_remote_info__; do
+    refute "refused: $bad_ref" ref_of "$bad_ref"
+done
+rm -f "$work/br/.rig/beads-ref"; ln -s /etc/hostname "$work/br/.rig/beads-ref"
+refute "refused: a symlinked .rig/beads-ref" rig_beads_ref "$work/br"
+rm -f "$work/br/.rig/beads-ref"
+url_of() { git -C "$work/br" remote set-url origin "$1"; rig_beads_remote_url "$work/br"; }
+for url in https://github.com/acme/app https://github.com/acme/app.git \
+           git@github.com:acme/app.git ssh://git@github.com/acme/app/; do
+    check "dolt remote for $url" test "$(url_of "$url")" = git+https://github.com/acme/app.git
+done
+check "dolt remote for a local path" test "$(url_of /srv/app.git)" = git+file:///srv/app.git
+refute "no dolt remote for another host" url_of https://example.com/acme/app
+refute "no dolt remote for a dot-segment path" url_of https://github.com/acme/../evil/app
+mkdir -p "$work/br/.beads"
+meta() { printf '%s\n' "$1" > "$work/br/.beads/metadata.json"; rig_beads_embedded_dir "$work/br" 2>/dev/null; }
+check "embedded store directory" \
+    test "$(meta '{"dolt_mode":"embedded","dolt_database":"app"}')" = "$work/br/.beads/embeddeddolt/app"
+refute "a server store is refused" meta '{"dolt_mode":"server","dolt_database":"app"}'
+refute "a database name with a slash is refused" meta '{"dolt_mode":"embedded","dolt_database":"../x"}'
+refute "no database name is refused" meta '{"dolt_mode":"embedded"}'
 
 # --- beads.role -----------------------------------------------------------
 

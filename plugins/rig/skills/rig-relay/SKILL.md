@@ -14,6 +14,13 @@ through a PR.
 
 Locally, none of this applies: use `bd dolt push`.
 
+**A store on a branch.** If the repository has `.rig/beads-ref`, its store
+lives on that branch and there is no relay: `rig-relay stage` runs
+`bd sync`, which pulls, merges and pushes the store, and prints
+`Pushed the beads store to refs/heads/…`. You can also run `bd sync` or
+`bd dolt push` yourself. If a push is refused as behind, `bd sync` again.
+The rest of this page is for repositories without that file.
+
 ## Stage, once, as the session's last beads act
 
 After the session's final `bd` write, from inside the member repository:

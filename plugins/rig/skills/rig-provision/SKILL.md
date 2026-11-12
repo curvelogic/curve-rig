@@ -41,5 +41,7 @@ above.
 ## Never
 
 - Seed a beads store from `.beads/issues.jsonl`.
-- Run `bd dolt push` from a web session: it cannot work, and other `bd`
-  writes are lost with the container unless relayed.
+- Run `bd dolt push` from a web session where the repository has no
+  `.rig/beads-ref`: it cannot work, and other `bd` writes are lost with
+  the container unless relayed. (With that file the store is on a branch
+  and `bd dolt push` works; see the `rig-relay` skill.)

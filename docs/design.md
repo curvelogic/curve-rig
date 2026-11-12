@@ -26,7 +26,8 @@ confirmed against the Claude Code documentation:
 5. **A web session can push `refs/heads/*` only.** Pushes to tags, notes,
    `refs/dolt/*` and branch deletions are refused, so `bd dolt push` cannot
    work, and other `bd` writes succeed locally and are then lost with the
-   container. Hence the relay.
+   container. Hence the relay — or a store kept on a branch, which a
+   session can push (`relay.md` → *A store on a branch*).
 6. **`mise` cannot provision a cloud session:** its installer host is denied
    by policy, and its default backend resolves versions via `api.github.com`
    (constraint 4). Member repos may keep `mise.toml` for local development,
@@ -101,6 +102,7 @@ A member repository may provide:
 |---|---|
 | `.rig/setup.sh` | Install the repo's toolchain and dependencies in a cloud session. Idempotent. May `source "$RIG_HOME/lib/common.sh"` etc. Runs with the repo as working directory. |
 | `.beads/` | Presence opts the repo into beads provisioning. |
+| `.rig/beads-ref` | One line, `refs/heads/<name>`: the store is kept on that branch, not `refs/dolt/data`. Sessions then push it directly; no relay. |
 | `REVIEW.md` | Review criteria and sensitive areas for the reviewer agent. |
 | `CLAUDE.md` | Built from `templates/CLAUDE.md`. |
 
@@ -108,6 +110,13 @@ Nothing else is required; a repo with none of these is left alone.
 
 ## Beads in a cloud session
 
+- **A store on a branch.** Where the member commits `.rig/beads-ref`, rig
+  clones the store from that branch with `dolt clone --ref` (bd cannot
+  clone from a ref) and points an existing store's `origin` at it; the
+  session then pushes with `bd sync`, through `rig-relay stage`. The rest
+  of this section is about a store on `refs/dolt/data`, which is the
+  default. When every member has switched, the relay goes (`relay.md` →
+  *A store on a branch*).
 - **Read:** `bd bootstrap` clones the store from `refs/dolt/data`. The tracked
   `.beads/config.yaml` usually names an ssh remote and the container has no
   ssh, so the remote is rewritten to https for the bootstrap and the tracked
