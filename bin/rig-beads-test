@@ -238,11 +238,20 @@ else
     check "branch: ... at the branch" \
         test "$(rig_beads_origin_of "$(rig_beads_embedded_dir "$m/after")")" = "git+file://$m/origin.git $ref"
     check "branch: provisioning twice is a no-op" provision "$m/after"
-    # stage refuses a store whose origin is not the branch.
+    # stage refuses a store whose origin is not the branch, even where
+    # that origin holds the store and a push there would succeed.
+    git init -q --bare "$m/other.git"
+    git -C "$m/seed" push -q "$m/other.git" main
     ( cd "$(rig_beads_embedded_dir "$m/s1")" && dolt remote remove origin &&
-      dolt remote add origin "git+file://$m/origin.git" ) </dev/null >>"$RIG_LOG" 2>&1
+      dolt remote add origin "git+file://$m/other.git" && dolt push origin main &&
+      cd "$m/s1" && bd create "made after repointing" ) </dev/null >>"$RIG_LOG" 2>&1
+    check "branch: the other remote holds the store" \
+        git -C "$m/other.git" rev-parse -q --verify refs/dolt/data
+    refs="$(git -C "$m/other.git" for-each-ref)"
     refute "branch: stage refuses a store not pointed at the branch" \
         bash -c "cd '$m/s1' && '$relay' stage three"
+    check "branch: ... and pushes nothing there" \
+        test "$(git -C "$m/other.git" for-each-ref)" = "$refs"
 fi
 
 echo

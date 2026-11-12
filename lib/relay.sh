@@ -239,9 +239,6 @@ rig_relay_stage() {
     rig_relay_push "$repo" "$out"
 }
 
-
-# The member's default branch: $RIG_RELAY_DEFAULT_BRANCH, else what origin
-# says its HEAD is, else origin/HEAD as last fetched.
 # Push REPO's store straight to the branch REF it is kept on, through bd:
 # `bd sync` pulls, merges, checks for conflicts and pushes. Refuses unless
 # the store's origin already is that branch, as rig's bootstrap leaves it,
@@ -271,6 +268,8 @@ rig_relay_direct() {
     return 1
 }
 
+# The member's default branch: $RIG_RELAY_DEFAULT_BRANCH, else what origin
+# says its HEAD is, else origin/HEAD as last fetched.
 rig_relay_default_branch() {
     local repo="$1" b=""
     if [ -n "${RIG_RELAY_DEFAULT_BRANCH:-}" ]; then
