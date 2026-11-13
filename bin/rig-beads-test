@@ -189,7 +189,11 @@ git -C "$m/seed" remote add origin "$m/origin.git"
 mkdir -p "$m/seed/.rig"; printf '# the beads store\n%s\n' "$ref" > "$m/seed/.rig/beads-ref"
 git -C "$m/seed" add .rig; git -C "$m/seed" commit -q -m init
 git -C "$m/seed" push -q origin main
-if ! ( cd "$m/seed" && bd init -p ex --non-interactive && bd create "first issue" &&
+if ! ( cd "$m/seed" && bd init -p ex --non-interactive &&
+       # A member whose .gitignore predates bd's gate-lock pattern.
+       # The seed hides its own lock locally, so it is not committed either.
+       sed -i '/gate\.lock/d' .gitignore .beads/.gitignore &&
+       printf '*.gate.lock*\n' >> .git/info/exclude && bd create "first issue" &&
        { git add -A; git commit -q -m "beads" || true; } && git push -q origin main &&
        cd "$(rig_beads_embedded_dir "$m/seed")" &&
        { dolt remote remove origin || true; } &&
