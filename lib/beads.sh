@@ -235,10 +235,16 @@ rig_beads_point_origin() {
     ) >>"$RIG_LOG" 2>&1
 }
 
+# Clone the store into DIR from URL's REF, then open it once with bd, so the
+# files bd creates on first use (lock files at the repo root) appear before
+# the working tree is restored and are hidden with the rest. bd bootstrap
+# does that opening itself.
+#   $1 dir   $2 url   $3 ref   $4 timeout   $5 repo
 _rig_dolt_clone_ref() {
     mkdir -p "$(dirname "$1")" &&
-        cd "$(dirname "$1")" &&
-        timeout "$4" dolt clone --ref "$3" "$2" "$(basename "$1")" </dev/null >>"$RIG_LOG" 2>&1
+        ( cd "$(dirname "$1")" &&
+          timeout "$4" dolt clone --ref "$3" "$2" "$(basename "$1")" </dev/null >>"$RIG_LOG" 2>&1 ) &&
+        { ( cd "$5" && timeout 60 bd list </dev/null >>"$RIG_LOG" 2>&1 ) || true; }
 }
 
 _rig_bd_bootstrap() {
@@ -303,7 +309,7 @@ rig_bootstrap_beads() {
     git -C "$repo" status --porcelain -z > "$before_file" 2>/dev/null || true
 
     if [ -n "$ref" ]; then
-        rig_run _rig_dolt_clone_ref "$dir" "$url" "$ref" "$t" || status=$?
+        rig_run _rig_dolt_clone_ref "$dir" "$url" "$ref" "$t" "$repo" || status=$?
     else
         rig_beads_config_https "$repo"
         rig_run _rig_bd_bootstrap "$repo" "$t" || status=$?
