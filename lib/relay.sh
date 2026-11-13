@@ -139,9 +139,15 @@ union select 'lost-memory', substring(o.\`key\`, 11) from config as of '$b' o
 # store and the remote's history, so a row the remote changed underneath
 # the session is never staged with this store's stale values.
 rig_relay_stage() {
-    local repo="$1" label mode doltdir base changes ids mems out tmp stamp n
+    local repo="$1" label mode doltdir base changes ids mems out tmp stamp n ref
     label="$(_rig_relay_label "${2:-}")"
     command -v bd >/dev/null 2>&1 || { rig_warn "bd is not on PATH"; return 1; }
+    # A member whose store is on a branch needs no relay: push it directly.
+    ref="$(rig_beads_ref "$repo")" || return 1
+    if [ -n "$ref" ]; then
+        rig_relay_direct "$repo" "$ref"
+        return
+    fi
     mode="$(rig_relay_mode "$repo")" || return 1
     case "$mode" in
         embedded) command -v dolt >/dev/null 2>&1 || { rig_warn "dolt is not on PATH"; return 1; } ;;
@@ -233,6 +239,34 @@ rig_relay_stage() {
     rig_relay_push "$repo" "$out"
 }
 
+# Push REPO's store straight to the branch REF it is kept on, through bd:
+# `bd sync` pulls, merges, checks for conflicts and pushes. Refuses unless
+# the store's origin already is that branch, as rig's bootstrap leaves it,
+# so it never pushes anywhere else. Needs lib/beads.sh.
+rig_relay_direct() {
+    local repo="$1" ref="$2" dir url origin out
+    command -v dolt >/dev/null 2>&1 || { rig_warn "dolt is not on PATH"; return 1; }
+    mkdir -p "$(dirname "$RIG_LOG")" 2>/dev/null || true
+    dir="$(rig_beads_embedded_dir "$repo")" || return 1
+    url="$(rig_beads_remote_url "$repo")" ||
+        { rig_warn "origin is not a github.com or local repository"; return 1; }
+    origin="$(rig_beads_origin_of "$dir")"
+    if [ "$origin" != "$url $ref" ]; then
+        rig_warn "the beads store's origin is not $ref of this repository" \
+            "(${origin:-none}). Use the rig-provision skill to bootstrap it." \
+            "Nothing pushed."
+        return 1
+    fi
+    if out="$(cd "$repo" && timeout 600 bd sync </dev/null 2>&1)"; then
+        printf '%s\n' "$out" >> "$RIG_LOG"
+        printf 'Pushed the beads store to %s\n' "$ref"
+        return 0
+    fi
+    printf '%s\n' "$out" >> "$RIG_LOG"
+    rig_warn "bd sync failed; nothing lost locally. Its output:"
+    printf '%s\n' "$out" | tail -n 20 >&2
+    return 1
+}
 
 # The member's default branch: $RIG_RELAY_DEFAULT_BRANCH, else what origin
 # says its HEAD is, else origin/HEAD as last fetched.

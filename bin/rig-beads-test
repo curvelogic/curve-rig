@@ -11,7 +11,10 @@
 # with the session clone under /home/ but outside the user's home folder,
 # as in a cloud session, and stages without the hook's TMPDIR. It needs a
 # directory it can create under /home: skipped locally without one, made
-# with sudo in CI.
+# with sudo in CI. A last pass, branch, keeps the store on a branch named
+# in .rig/beads-ref: rig clones it from there, two sessions write the same
+# issue and push directly through `rig-relay stage`, the stale push is
+# refused until it merges, and nothing touches refs/dolt/data.
 #
 # Usage: rig-beads-test
 #
@@ -173,6 +176,83 @@ for mode in embedded server cloud; do
         ( cd "$d" && bd dolt stop ) </dev/null >/dev/null 2>&1 || true
     done
 done
+
+# A store kept on a branch (.rig/beads-ref): no relay. rig clones the
+# store from the branch; two sessions write the same issue, the second
+# push is refused until it pulls, and `rig-relay stage` merges and pushes
+# both. Nothing is written to refs/dolt/data.
+m="$work/branch"; mkdir -p "$m"
+ref=refs/heads/beads-data
+git init -q --bare "$m/origin.git"
+git init -q "$m/seed"
+git -C "$m/seed" remote add origin "$m/origin.git"
+mkdir -p "$m/seed/.rig"; printf '# the beads store\n%s\n' "$ref" > "$m/seed/.rig/beads-ref"
+git -C "$m/seed" add .rig; git -C "$m/seed" commit -q -m init
+git -C "$m/seed" push -q origin main
+if ! ( cd "$m/seed" && bd init -p ex --non-interactive && bd create "first issue" &&
+       { git add -A; git commit -q -m "beads" || true; } && git push -q origin main &&
+       cd "$(rig_beads_embedded_dir "$m/seed")" &&
+       { dolt remote remove origin || true; } &&
+       dolt remote add --ref "$ref" origin "git+file://$m/origin.git" &&
+       cd "$m/seed" && bd dolt push ) </dev/null >>"$RIG_LOG" 2>&1; then
+    bad "branch: create the tracker (see the log below)"; tail -n 20 "$RIG_LOG" >&2
+else
+    first="$(cd "$m/seed" && bd list --json </dev/null 2>/dev/null | jq -r '.[0].id')"
+    check "branch: the store is on the branch" git -C "$m/origin.git" rev-parse --verify -q "$ref"
+    for x in s1 s2; do
+        git clone -q "$m/origin.git" "$m/$x"
+        check "branch: rig bootstraps $x from the branch" provision "$m/$x"
+        check "branch: $x's origin is the branch" \
+            test "$(rig_beads_origin_of "$(rig_beads_embedded_dir "$m/$x")")" = "git+file://$m/origin.git $ref"
+        check "branch: $x's tree is clean" test -z "$(git -C "$m/$x" status --porcelain)"
+    done
+    check "branch: the issue is there" jq -e '.title == "first issue"' <(show "$m/s1" "$first")
+    ( cd "$m/s1" && bd update "$first" --priority 0 && bd create "made in s1" ) </dev/null >>"$RIG_LOG" 2>&1
+    ( cd "$m/s2" && bd update "$first" --description "edited in s2" ) </dev/null >>"$RIG_LOG" 2>&1
+    out="$(cd "$m/s1" && "$relay" stage one 2>&1)" || true
+    printf '%s\n' "$out" >> "$RIG_LOG"
+    check "branch: stage pushes the store directly" grep -q "^Pushed the beads store to $ref" <<< "$out"
+    head="$(git -C "$m/origin.git" rev-parse "$ref")"
+    out="$(cd "$m/s2" && bd dolt push </dev/null 2>&1)" || true
+    printf '%s\n' "$out" >> "$RIG_LOG"
+    check "branch: a stale push is refused" grep -q 'rejected' <<< "$out"
+    check "branch: ... and leaves the branch alone" \
+        test "$(git -C "$m/origin.git" rev-parse "$ref")" = "$head"
+    out="$(cd "$m/s2" && "$relay" stage two 2>&1)" || true
+    printf '%s\n' "$out" >> "$RIG_LOG"
+    check "branch: the second session's stage merges and pushes" \
+        grep -q "^Pushed the beads store to $ref" <<< "$out"
+    check "branch: no inbox branch" test -z "$(git -C "$m/origin.git" for-each-ref refs/heads/beads-inbox/)"
+    check "branch: refs/dolt/data is not written" \
+        test -z "$(git -C "$m/origin.git" for-each-ref refs/dolt/)"
+    git clone -q "$m/origin.git" "$m/after"
+    check "branch: a fresh bootstrap reads the branch" provision "$m/after"
+    check "branch: both edits to the same issue arrived" \
+        jq -e '.priority == 0 and .description == "edited in s2"' <(show "$m/after" "$first")
+    check "branch: the new issue arrived" \
+        grep -q 'made in s1' <(cd "$m/after" && bd list --json </dev/null 2>/dev/null)
+    # Repointing: a store bootstrapped from elsewhere follows .rig/beads-ref.
+    ( cd "$(rig_beads_embedded_dir "$m/after")" && dolt remote remove origin &&
+      dolt remote add origin "git+file://$m/origin.git" ) </dev/null >>"$RIG_LOG" 2>&1
+    check "branch: rig repoints an existing store" provision "$m/after"
+    check "branch: ... at the branch" \
+        test "$(rig_beads_origin_of "$(rig_beads_embedded_dir "$m/after")")" = "git+file://$m/origin.git $ref"
+    check "branch: provisioning twice is a no-op" provision "$m/after"
+    # stage refuses a store whose origin is not the branch, even where
+    # that origin holds the store and a push there would succeed.
+    git init -q --bare "$m/other.git"
+    git -C "$m/seed" push -q "$m/other.git" main
+    ( cd "$(rig_beads_embedded_dir "$m/s1")" && dolt remote remove origin &&
+      dolt remote add origin "git+file://$m/other.git" && dolt push origin main &&
+      cd "$m/s1" && bd create "made after repointing" ) </dev/null >>"$RIG_LOG" 2>&1
+    check "branch: the other remote holds the store" \
+        git -C "$m/other.git" rev-parse -q --verify refs/dolt/data
+    refs="$(git -C "$m/other.git" for-each-ref)"
+    refute "branch: stage refuses a store not pointed at the branch" \
+        bash -c "cd '$m/s1' && '$relay' stage three"
+    check "branch: ... and pushes nothing there" \
+        test "$(git -C "$m/other.git" for-each-ref)" = "$refs"
+fi
 
 echo
 if [ "$fails" -eq 0 ]; then echo "rig-beads-test: ok"; else
