@@ -88,6 +88,17 @@ Criteria applied to every PR, on top of green CI.
 | Only external actions' `uses:` refs change | agent-merged after review |
 -->
 
+<!-- Optional: a routine class for excluding vendored third-party code
+     from the lint, format or type-check configuration. rig-review counts
+     that configuration as CI that gates merging, so without a row like
+     this such a PR is the owner's. With it, rig-review fetches the stated
+     upstream release and confirms every file byte for byte before it
+     merges. Name your own tools' files in the row. To adopt the class,
+     move the row into the table above.
+
+| A vendored-code exclusion: a PR, or the part of one, that adds paths to the ignore or exclude lists of the lint, format or type-check configuration (the `ignores` of `eslint.config.js`, `.prettierignore`, the `exclude` of `tsconfig.json`) and changes nothing else in those files. Each path is a directory of third-party files committed unmodified (`vendor/acme-lib/`, say), beside their licence and a provenance note (`README.md`) that names the upstream source, the exact version or commit, and a checksum for each file. The reviewer confirms the files match that upstream release byte for byte, and that nothing else written in this repository is under the path apart from the provenance note. It removes, disables or relaxes no rule and no check over any other path. | agent-merged after review |
+-->
+
 ## Merging
 
 <!-- Merge method (squash or merge commit), and any check after merging:
