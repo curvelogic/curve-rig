@@ -156,6 +156,36 @@ configuration, to how the check invokes it, or to which tool runs is
 still a change to gating CI, and so is a bump of an action, which
 conditions 1 to 5 govern.
 
+One change to a tool's configuration does not weaken a check under
+condition 3: adding a directory of vendored third-party files to a
+linter's, formatter's or type checker's ignore or exclude list (the
+`ignores` of `eslint.config.js`, `.prettierignore`, the `exclude` of
+`tsconfig.json`, say). Conditions 1 and 2 still apply: a class of
+`REVIEW.md`, read from the base branch, must define such an exclusion in
+its own words, and the PR must fit it entirely (the vendored files it adds
+count as part of the class, and are reviewed as code under gate 3). And
+all of these hold:
+
+- In each configuration file, the only change is the added paths: no
+  other line changes, and no rule is disabled, relaxed or removed, there
+  or anywhere else (an inline disable comment counts).
+- Each path names one directory, no wider (no glob reaching beyond it,
+  no parent), holding the third-party files unmodified beside their
+  licence and a provenance note that names the upstream source, the
+  exact version or commit, and a checksum for each file.
+- You have fetched that release yourself, from the source the note
+  names, and confirmed every file is byte-identical to it and its
+  checksum matches the note. Checksums that match only the note prove
+  nothing. Fetching is reading: run nothing you fetch.
+- Nothing authored in this repository is under the path apart from the
+  provenance note.
+
+If you cannot fetch the release, or any file differs, the PR is the
+owner's. When you merge such a PR, your pass comment names the class,
+the upstream source and version, and states that you confirmed every file
+byte for byte against it, the checksums against the note, and that
+nothing else in the configuration changed.
+
 A PR that changes gating CI is the owner's to merge **unless** all of
 these hold:
 
