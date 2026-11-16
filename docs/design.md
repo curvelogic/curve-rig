@@ -192,8 +192,9 @@ Nothing else is required; a repo with none of these is left alone.
   themselves; members' `REVIEW.md` says so (`templates/REVIEW.md` →
   *Owner signals*). The owner guard, a PreToolUse hook in every session,
   refuses merging a held PR (labelled `owner-review` or carrying a "Do not
-  merge — owner review" line), posting a hold release and removing the
-  label, by `gh`, curl and the GitHub MCP tools. It fails closed where it
+  merge — owner review" line), taking the hold line away, posting a hold
+  release and removing the label, by `gh`, curl, git and the GitHub MCP
+  tools; and pushing to the default branch, which bypasses PRs altogether. It fails closed where it
   cannot tell, but it reads command text, so it guards against mistakes
   and injected instructions, not an agent set on evading it.
 - **Review.** The owner merges every non-docs PR (see `REVIEW.md`).

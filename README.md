@@ -145,16 +145,21 @@ part agents could get wrong. It refuses:
 
 - merging a held PR — one labelled `owner-review`, or whose body, a
   comment or a review carries "Do not merge — owner review" — by
-  `gh pr merge`, `gh api` or curl to a merge endpoint, or the GitHub MCP
-  merge and auto-merge tools; and any GraphQL merge mutation, which names
-  no PR it can check;
+  `gh pr merge`, `gh api` or curl to a merge or auto-merge endpoint, or
+  the GitHub MCP merge and auto-merge tools; and, since they land changes
+  with no PR to check, the Merges API, a push or ref update to the
+  default branch, and any GraphQL merge mutation;
+- taking a hold away: editing or deleting the PR body, comment or review
+  that carries the hold line;
 - posting text that reads as a hold release, in a comment, review, PR or
   issue, by `gh`, curl or the GitHub MCP tools;
 - removing the `owner-review` label, or deleting or renaming it.
 
 It reads the PR with `gh api` (REST, which cloud sessions allow) and fails
-closed: a merge it cannot tie to one readable PR, or text it cannot read,
-is refused with a message saying how to proceed. A refused call does not
+closed: a merge it cannot tie to one readable PR and repository, a
+payload it cannot read, a GraphQL mutation that edits or deletes, or any
+GitHub call when `jq` is missing, is refused with a message saying how to
+proceed. A refused call does not
 run; the session gets the guard's reason as the tool's result, for
 example:
 
