@@ -47,9 +47,8 @@ org-level tracker. rig has no beads store of its own (see `CLAUDE.md`).
   rule on owner signals in `REVIEW.md`.
 - Owner guard: a PreToolUse hook, in the plugin and installed at user
   level, refusing to merge a held PR, take a hold line away, post a hold
-  release, remove the `owner-review` label or push to the default branch
-  (`bin/rig-guard-test`). Seen refusing a merge in a
-  headless session.
+  release or remove the `owner-review` label (`bin/rig-guard-test`). Seen
+  refusing a merge in a headless session.
 - CI: `bin/rig-check` on every PR; a separate `pull_request_target`
   workflow runs the base branch's `bin/rig-denylist-check` over history,
   paths, metadata and refs, with the secret held in a `denylist`

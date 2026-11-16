@@ -79,9 +79,9 @@ elif [ ! -s "$RIG_CONFIG_DIR/trusted-owners" ]; then
         "Re-run with --trusted-owners OWNER[,OWNER...]"
 fi
 
-# User-level SessionStart hook and owner guard. Write through a symlinked settings.json to
-# its target; refuse anything that is not exactly one JSON object; replace
-# atomically with a temp file beside the target.
+# User-level SessionStart hook and owner guard. Write through a symlinked
+# settings.json to its target; refuse anything that is not exactly one
+# JSON object; replace atomically with a temp file beside the target.
 settings="$CLAUDE_DIR/settings.json"
 target="$(readlink -f -- "$settings" 2>/dev/null || printf '%s' "$settings")"
 mkdir -p "$(dirname "$target")"

@@ -10,8 +10,8 @@
 #     comments or reviews carry a "Do not merge — owner review" line. Covers
 #     `gh pr merge`, `gh api` and curl calls to a merge or auto-merge
 #     endpoint, GraphQL merge mutations, and the GitHub MCP merge and
-#     auto-merge tools; and, since they land a change without its PR, the
-#     Merges API and a push or ref update to the default branch;
+#     auto-merge tools; and, since it lands a branch with no PR to check,
+#     the Merges API;
 #   - taking a hold away so the PR can then be merged: editing or deleting
 #     the body, comment or review that carries the hold line;
 #   - posting a hold release ("hold released" and close variants) in a
@@ -31,6 +31,8 @@
 #
 # A guard against mistakes and injected instructions, not a sandbox: a
 # command assembled at run time (a variable holding "gh") is not seen.
+# Writes to the default branch (git push, ref updates, the Contents API)
+# are left to branch protection: some members have agents commit there.
 
 set -euo pipefail
 
@@ -56,7 +58,9 @@ trap 'st=$?; if [ "$relevant" = 1 ] && [ "$st" != 0 ] && [ "$st" != 2 ]; then
       fi' EXIT
 
 if ! command -v jq >/dev/null 2>&1; then
-    if printf '%s' "$input" | grep -qiE 'merge|hold|label|comment|review|pull|issue|push|update-ref|api\.github|gh '; then
+    # The call itself, without the paths that come with every call.
+    call="$(printf '%s' "$input" | sed -E 's/"(cwd|transcript_path)"[[:space:]]*:[[:space:]]*"([^"\\]|\\.)*"//g')"
+    if grep -qiE 'merge|hold|label|comment|review|pull|issue|api\.github|gh ' <<<"$call"; then
         relevant=1
         refuse "jq is not installed, so this call cannot be checked for an owner hold; it is refused."
     fi
@@ -98,7 +102,7 @@ hold_reason() {
         out="$(printf '%s' "$out" | jq -r '.[]? | .body // ""')" || return 1
         bodies="$bodies"$'\n'"$out"
     done
-    if printf '%s' "$bodies" | grep -qiE "$HOLD_RE"; then
+    if grep -qiE "$HOLD_RE" <<<"$bodies"; then
         printf 'its body or a comment carries a "Do not merge — owner review" hold'
     fi
 }
@@ -142,7 +146,7 @@ check_text() {   # refuse if text $1 reads as a hold release
     [ -z "$hit" ] || refuse "this posts text that reads as a hold release (\"$hit\"). $RELEASE_ADVICE"
 }
 
-holds() { printf '%s' "$1" | grep -qiE "$HOLD_RE"; }
+holds() { grep -qiE "$HOLD_RE" <<<"$1"; }
 
 UNREADABLE="so it is refused. Check gh is installed and can read the repository, then retry; if it still cannot, leave this to the owner."
 
@@ -263,24 +267,53 @@ fi
 
 [ "$tool" = Bash ] || exit 0
 cmd="$(printf '%s' "$input" | jq -r '.tool_input.command // ""')"
-# Only commands that can reach GitHub or push concern the guard.
-printf '%s' "$cmd" | grep -qE 'gh|github|curl|wget|https?:|git' || exit 0
+# Only commands that run gh, curl or wget, or name the API, concern the
+# guard. A word of its own, not letters inside one ("right", "though"):
+# splitting a long command into words is slow, so most must skip it.
+# Quotes and backslashes go first, as the shell drops them ('g'h is gh).
+W="[^[:alnum:]_.-]"
+grep -qE "(^|$W)(gh|curl|wget)(\$|$W)|api\.github\.com" \
+    <<<"$(tr -d "\"'\\\\" <<<"$cmd")" || exit 0
 relevant=1
+# (Here-strings, not pipes, feed grep -q throughout: with pipefail, grep
+# quitting at the first match fails the writer of a long text, and the
+# match reads as none.)
+# Byte-wise string handling: much faster on long commands, and enough for
+# the ASCII the guard looks for.
+export LC_ALL=C
 
 SEP=$'\x1f'
 # Split the command into words, honouring quotes and backslashes, with a
 # lone $SEP word at each unquoted ; & | ( or newline, and "$SEP)" at each
 # unquoted ). Not a shell: expansions stay as text. Words go to WORDS.
 WORDS=()
+# It walks a block of 1024 characters at a time, refilled as it goes, and
+# takes runs of ordinary characters whole: indexing into a long string
+# costs its length in bash, so a character-at-a-time walk is quadratic.
+# The ends of a run: a quote or backslash (in quotes), or any character
+# with a meaning (outside them).
+END_QUOTED=$'["\'\\\\]*'
+END_PLAIN=$'["\'\\\\ \t;&|()\n]*'
 tokenize() {
-    local s="$1" n=${#1} i=0 c q="" w="" inw=0
-    while [ "$i" -lt "$n" ]; do
+    local rest="$1" s="" n=0 i=0 c q="" w="" inw=0 run
+    while :; do
+        if [ $((i + 1)) -ge "$n" ] && [ -n "$rest" ]; then
+            s="${s:i}${rest:0:1024}"; rest="${rest:1024}"; n=${#s}; i=0
+        fi
+        [ "$i" -lt "$n" ] || break
         c="${s:i:1}"
         if [ -n "$q" ]; then
             if [ "$c" = "$q" ]; then q=""
             elif [ "$q" = '"' ] && [ "$c" = "\\" ] && [ $((i + 1)) -lt "$n" ]; then
                 i=$((i + 1)); w="$w${s:i:1}"
-            else w="$w$c"; fi
+            else
+                # Up to the next quote or backslash.
+                run="${s:i}"
+                # shellcheck disable=SC2295  # a pattern, on purpose
+                run="${run%%$END_QUOTED}"
+                [ -n "$run" ] || run="$c"
+                w="$w$run"; i=$((i + ${#run})); continue
+            fi
             i=$((i + 1)); continue
         fi
         case "$c" in
@@ -293,7 +326,13 @@ tokenize() {
             ';'|'&'|'|'|'('|')'|$'\n')
                 if [ "$inw" = 1 ]; then WORDS+=("$w"); w=""; inw=0; fi
                 if [ "$c" = ')' ]; then WORDS+=("$SEP)"); else WORDS+=("$SEP"); fi ;;
-            *) w="$w$c"; inw=1 ;;
+            *)
+                # Up to the next character with a meaning.
+                run="${s:i}"
+                # shellcheck disable=SC2295  # a pattern, on purpose
+                run="${run%%$END_PLAIN}"
+                [ -n "$run" ] || run="$c"
+                w="$w$run"; inw=1; i=$((i + ${#run})); continue ;;
         esac
         i=$((i + 1))
     done
@@ -386,6 +425,26 @@ payload_of() {
 POSTS_TEXT=0
 MERGE_CHECKED=0
 
+# The body a REST call sends, apart from its other fields (a title, say):
+# PAY_HAS_BODY=1 once one is seen, its text in PAY_BODY. A payload that is
+# not JSON but mentions "body" counts as a body the guard cannot read.
+PAY_BODY=""; PAY_HAS_BODY=0
+note_field() {   # $1 a -f/-F field, $2 its value as sent (the file's, for @)
+    case "$1" in body=*) PAY_HAS_BODY=1; PAY_BODY="$PAY_BODY"$'\n'"$2" ;; esac
+    return 0
+}
+note_blob() {    # $1 a JSON payload
+    if printf '%s' "$1" | jq -e 'type == "object"' >/dev/null 2>&1; then
+        if printf '%s' "$1" | jq -e 'has("body")' >/dev/null 2>&1; then
+            PAY_HAS_BODY=1
+            PAY_BODY="$PAY_BODY"$'\n'"$(printf '%s' "$1" | jq -r '.body // "" | tostring')"
+        fi
+    else
+        case "$1" in *body*) PAY_HAS_BODY=1 ;; esac
+    fi
+    return 0
+}
+
 # OWNER REPO of an API path, resolving {owner} and {repo}.
 api_repo() {   # $1 path
     [[ "$1" =~ ^repos/([^/]+)/([^/]+) ]] || return 1
@@ -442,7 +501,7 @@ gh_pr() {
             -*) ;;
             *) [ -n "$sel" ] || sel="$w" ;;
         esac
-        if [ -n "$v" ] && printf ',%s,' "$(lower "$v" | tr -d ' ')" | grep -q ",$LABEL,"; then
+        if [ -n "$v" ] && grep -q ",$LABEL," <<<",$(lower "$v" | tr -d ' '),"; then
             refuse "this removes the \`$LABEL\` label. Only the owner removes it; removing it does not release a hold."
         fi
     done
@@ -482,7 +541,8 @@ gh_label() {
 
 # gh api: method, path and the payload it sends.
 gh_api() {
-    local method="" path="" fields=0 w text="" bad=0 f
+    local method="" path="" fields=0 w text="" bad=0 f c
+    PAY_BODY=""; PAY_HAS_BODY=0
     while [ "$#" -gt 0 ]; do
         w="$1"; shift; f=""
         case "$w" in
@@ -491,11 +551,18 @@ gh_api() {
             -X?*) method="${w#-X}" ;;
             -F|--field) fields=1; f="${1:-}"; shift || true ;;
             --field=*) fields=1; f="${w#*=}" ;;
-            -f|--raw-field) fields=1; text="$text"$'\n'"${1:-}"; shift || true ;;
-            --raw-field=*) fields=1; text="$text"$'\n'"${w#*=}" ;;
+            -f|--raw-field)
+                fields=1; text="$text"$'\n'"${1:-}"
+                note_field "${1:-}" "${1#*=}"; shift || true ;;
+            --raw-field=*)
+                fields=1; text="$text"$'\n'"${w#*=}"
+                note_field "${w#*=}" "${w#*=*=}" ;;
             --input)
                 fields=1; add_file "${1:-}"
-                text="$text"$'\n'"$(payload_of "${1:-}")" || bad=1; shift || true ;;
+                if c="$(payload_of "${1:-}")"; then
+                    text="$text"$'\n'"$c"; note_blob "$c"
+                else bad=1; fi
+                shift || true ;;
             -H|--header|-q|--jq|-t|--template|--hostname|--cache|-p|--preview) shift || true ;;
             -*) ;;
             *) [ -n "$path" ] || path="$w" ;;
@@ -503,7 +570,12 @@ gh_api() {
         if [ -n "$f" ]; then
             text="$text"$'\n'"$f"
             case "$f" in
-                *=@*|@*) add_at "$f"; text="$text"$'\n'"$(payload_of "${f#*@}")" || bad=1 ;;
+                *=@*|@*)
+                    add_at "$f"
+                    if c="$(payload_of "${f#*@}")"; then
+                        text="$text"$'\n'"$c"; note_field "$f" "$c"
+                    else bad=1; fi ;;
+                *) note_field "$f" "${f#*=}" ;;
             esac
         fi
     done
@@ -540,11 +612,6 @@ api_path_rules() {   # $1 method $2 path $3 payload text $4 1 if part of it is u
         MERGE_CHECKED=1
         refuse "this merges a branch through the Merges API, with no PR the guard can check, so it is refused. Merge through the PR."
     fi
-    # Moving the default branch by ref.
-    if [[ "$lp" =~ ^repos/[^/]+/[^/]+/git/refs/heads/(.+)$ ]] && is_default_branch "${BASH_REMATCH[1]}" "$o/$r"; then
-        refuse "this moves the default branch directly, which lands changes without their PR. Agents never do that; open a PR."
-    fi
-
     # Labels.
     if [[ "$lp" =~ ^repos/[^/]+/[^/]+/(issues/[^/]+/)?labels/$LABEL$ ]]; then
         refuse "this removes, deletes or renames the \`$LABEL\` label. Only the owner does that; removing it does not release a hold."
@@ -552,7 +619,7 @@ api_path_rules() {   # $1 method $2 path $3 payload text $4 1 if part of it is u
     if [[ "$p" =~ ^repos/[^/]+/[^/]+/issues/([0-9]+)/labels$ ]] && [ "$m" != POST ]; then
         n="${BASH_REMATCH[1]}"
         unreadable "$@"
-        if [ "$m" = PUT ] && printf '%s' "$(lower "$t")" | grep -q "$LABEL"; then return 0; fi
+        if [ "$m" = PUT ] && grep -q "$LABEL" <<<"$(lower "$t")"; then return 0; fi
         check_label_kept "$o" "$r" "$n"
     elif [[ "$p" =~ ^repos/[^/]+/[^/]+/issues/[^/]+/labels$ ]] && [ "$m" != POST ]; then
         refuse "could not tell which PR's labels this changes, so it is refused."
@@ -563,10 +630,10 @@ api_path_rules() {   # $1 method $2 path $3 payload text $4 1 if part of it is u
         n="${BASH_REMATCH[2]}"
         [[ "$n" =~ ^[0-9]+$ ]] || refuse "could not tell which PR or issue this edits, so it is refused."
         unreadable "$@"
-        if printf '%s' "$t" | grep -q 'labels' && ! printf '%s' "$(lower "$t")" | grep -q "$LABEL"; then
+        if grep -q 'labels' <<<"$t" && ! grep -q "$LABEL" <<<"$(lower "$t")"; then
             check_label_kept "$o" "$r" "$n"
         fi
-        if printf '%s' "$t" | grep -q 'body'; then check_body_edit "$o" "$r" "$n" "$t"; fi
+        [ "$PAY_HAS_BODY" = 0 ] || check_body_edit "$o" "$r" "$n" "$PAY_BODY"
     fi
 
     # Edits and deletions of comments and reviews.
@@ -574,81 +641,21 @@ api_path_rules() {   # $1 method $2 path $3 payload text $4 1 if part of it is u
         id="${BASH_REMATCH[2]}"; n="${BASH_REMATCH[1]}"
         [[ "$id" =~ ^[0-9]+$ ]] || refuse "could not tell which comment this changes, so it is refused."
         unreadable "$@"
-        check_comment_edit "$o" "$r" "$n" "$id" "$m" "$t"
+        check_comment_edit "$o" "$r" "$n" "$id" "$m" "$PAY_BODY"
     fi
     if [[ "$p" =~ ^repos/[^/]+/[^/]+/pulls/([^/]+)/reviews/([^/]+)$ ]]; then
         n="${BASH_REMATCH[1]}"; id="${BASH_REMATCH[2]}"
         [[ "$n$id" =~ ^[0-9]+$ ]] || refuse "could not tell which review this changes, so it is refused."
         unreadable "$@"
-        check_comment_edit "$o" "$r" "reviews/$n" "$id" "$m" "$t"
+        check_comment_edit "$o" "$r" "reviews/$n" "$id" "$m" "$PAY_BODY"
     fi
-    return 0
-}
-
-# Whether branch $1 is the default branch of repository $2 (OWNER/REPO):
-# main or master always; otherwise as the checkout records it, or GitHub
-# says. A repository that cannot be read counts only main and master.
-is_default_branch() {
-    local b="${1#refs/heads/}" d
-    case "$b" in main|master) return 0 ;; esac
-    if [ -n "$CUR_DIR" ]; then
-        d="$(git -C "$CUR_DIR" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)" && [ "${d#origin/}" = "$b" ] && return 0
-    fi
-    if [ -n "${2:-}" ]; then
-        d="$(api_get "repos/$2" | jq -r '.default_branch // empty' 2>/dev/null)" && [ -n "$d" ] && [ "$d" = "$b" ] && return 0
-    fi
-    return 1
-}
-
-# git push: refuse pushing to the default branch, or every branch.
-git_push() {   # $1 directory, then push's arguments
-    local dir="$1" w pos=() dst cur rrepo=""
-    shift
-    while [ "$#" -gt 0 ]; do
-        w="$1"; shift
-        case "$w" in
-            --all|--mirror|--branches)
-                refuse "this pushes every branch, the default branch among them, which lands changes without their PR. Push the one branch your PR is from." ;;
-            -o|--push-option|--repo|--receive-pack|--exec) shift || true ;;
-            -*) ;;
-            *) pos+=("$w") ;;
-        esac
-    done
-    # The repository the remote names, to learn its default branch.
-    if [ -n "${pos[0]:-}" ]; then
-        case "${pos[0]}" in
-            *github.com*) rrepo="$(repo_of_url "${pos[0]}")" ;;
-            *) [ -z "$dir" ] || rrepo="$(repo_of_url "$(git -C "$dir" remote get-url "${pos[0]}" 2>/dev/null)")" ;;
-        esac
-    fi
-    if [ "${#pos[@]}" -le 1 ]; then
-        # The current branch, pushed to its upstream or the same name.
-        [ -n "$dir" ] || refuse "could not tell which branch this pushes, so it is refused. Name it: git push origin <branch>."
-        cur="$(git -C "$dir" symbolic-ref --short HEAD 2>/dev/null)" || return 0
-        dst="$(git -C "$dir" rev-parse --abbrev-ref "$cur@{upstream}" 2>/dev/null)" || dst="$cur"
-        dst="${dst#*/}"
-        is_default_branch "$dst" "$rrepo" && refuse "this pushes to the default branch ($dst), which lands changes without their PR. Agents never do that; push a branch and open a PR."
-        is_default_branch "$cur" "$rrepo" && refuse "this pushes the default branch ($cur). Agents never push it; push a branch and open a PR."
-        return 0
-    fi
-    for w in "${pos[@]:1}"; do
-        w="${w#+}"
-        case "$w" in
-            *:*) dst="${w#*:}"; [ -n "$dst" ] || continue ;;
-            HEAD|@) dst="$(git -C "${dir:-.}" symbolic-ref --short HEAD 2>/dev/null)" || continue ;;
-            *) dst="$w" ;;
-        esac
-        dst="${dst#refs/heads/}"
-        if is_default_branch "$dst" "$rrepo"; then
-            refuse "this pushes to the default branch ($dst), which lands changes without their PR. Agents never do that; push a branch and open a PR."
-        fi
-    done
     return 0
 }
 
 # curl or wget to GitHub: data files, method and the API paths it names.
 web_call() {
-    local w method="" seg=" $* " p text="" bad=0
+    local w method="" seg=" $* " p text="" bad=0 c
+    PAY_BODY=""; PAY_HAS_BODY=0
     case "$seg" in *github.com*|*api.github*) ;; *) return 0 ;; esac
     while [ "$#" -gt 0 ]; do
         w="$1"; shift
@@ -657,11 +664,20 @@ web_call() {
             -X?*) method="${w#-X}" ;;
             -d|--data|--data-binary|--data-raw|--data-urlencode|-F|--form|--json|--post-data|--body-data)
                 POSTS_TEXT=1; add_at "${1:-}"; text="$text"$'\n'"${1:-}"
-                case "${1:-}" in *=@*|@*) text="$text"$'\n'"$(payload_of "${1#*@}")" || bad=1 ;; esac
+                case "${1:-}" in
+                    *=@*|@*)
+                        if c="$(payload_of "${1#*@}")"; then
+                            text="$text"$'\n'"$c"; note_blob "$c"
+                        else bad=1; fi ;;
+                    *) note_blob "${1:-}" ;;
+                esac
                 shift || true ;;
             -T|--upload-file|--post-file|--body-file)
                 POSTS_TEXT=1; add_file "${1:-}"
-                text="$text"$'\n'"$(payload_of "${1:-}")" || bad=1; shift || true ;;
+                if c="$(payload_of "${1:-}")"; then
+                    text="$text"$'\n'"$c"; note_blob "$c"
+                else bad=1; fi
+                shift || true ;;
             --method=*) method="${w#--method=}" ;;
         esac
     done
@@ -688,11 +704,11 @@ while [ "$i" -lt "$nw" ]; do
     fi
     i=$((i + 1))
     if [ "${#seg[@]}" -gt 0 ]; then
-        # Find gh, curl, wget, git or cd in it, past assignments and wrappers.
+        # Find gh, curl, wget or cd in it, past assignments and wrappers.
         k=0
         while [ "$k" -lt "${#seg[@]}" ]; do
-            b="$(basename -- "${seg[$k]}" 2>/dev/null || printf '%s' "${seg[$k]}")"
-            case "$b" in gh|curl|wget|git|cd|pushd|popd) break ;; esac
+            b="${seg[$k]##*/}"
+            case "$b" in gh|curl|wget|cd|pushd|popd) break ;; esac
             k=$((k + 1))
         done
         if [ "$k" -lt "${#seg[@]}" ]; then
@@ -702,23 +718,6 @@ while [ "$i" -lt "$nw" ]; do
                 cd|pushd) CD_SEEN=1; change_dir "${rest[0]:-}" ;;
                 popd) CD_SEEN=1; CUR_DIR="" ;;
                 curl|wget) web_call ${rest[@]+"${rest[@]}"} ;;
-                git)
-                    # git's own options before the subcommand.
-                    gdir="$CUR_DIR"; j=0
-                    while [ "$j" -lt "${#rest[@]}" ]; do
-                        case "${rest[$j]}" in
-                            -C) j=$((j + 1)); w="${rest[$j]:-}"
-                                case "$w" in /*) gdir="$w" ;; *) [ -n "$gdir" ] && gdir="$gdir/$w" ;; esac
-                                case "$w" in *'$'*) gdir="" ;; esac ;;
-                            -c|--git-dir|--work-tree|--namespace) j=$((j + 1)) ;;
-                            -*) ;;
-                            *) break ;;
-                        esac
-                        j=$((j + 1))
-                    done
-                    if [ "${rest[$j]:-}" = push ]; then
-                        git_push "$gdir" ${rest[@]+"${rest[@]:$((j + 1))}"}
-                    fi ;;
                 gh)
                     if [ "${#rest[@]}" -gt 0 ]; then
                         a="${rest[0]}"; s="${rest[1]:-}"
@@ -741,7 +740,7 @@ while [ "$i" -lt "$nw" ]; do
 done
 
 # GraphQL mutations name no PR or comment the guard can read: refuse them.
-GQL_RE='mergePullRequest|enablePullRequestAutoMerge|mergeBranch|updateRefs?[^[:alnum:]]|removeLabelsFromLabelable|clearLabelsFromLabelable|deleteLabel|updateLabel|updatePullRequest[^[:alnum:]]|updateIssue[^[:alnum:]]|updateIssueComment|deleteIssueComment|minimizeComment|updatePullRequestReview|deletePullRequestReview|updatePullRequestReviewComment|deletePullRequestReviewComment'
+GQL_RE='mergePullRequest|enablePullRequestAutoMerge|mergeBranch|removeLabelsFromLabelable|clearLabelsFromLabelable|deleteLabel|updateLabel|updatePullRequest[^[:alnum:]]|updateIssue[^[:alnum:]]|updateIssueComment|deleteIssueComment|minimizeComment|updatePullRequestReview|deletePullRequestReview|updatePullRequestReviewComment|deletePullRequestReviewComment'
 
 all_text="$cmd"
 for f in ${POST_FILES[@]+"${POST_FILES[@]}"}; do
@@ -757,14 +756,14 @@ for f in ${POST_FILES[@]+"${POST_FILES[@]}"}; do
     fi
 done
 
-if [ "$POSTS_TEXT" = 1 ] && printf '%s' "$all_text" | grep -qE "$GQL_RE"; then
-    refuse "this runs a GraphQL mutation that merges, moves a branch, changes labels or edits or deletes a PR, issue, comment or review. It names nothing the guard can check, so it is refused. Use gh pr, gh api with a REST path, or the GitHub MCP tools."
+if [ "$POSTS_TEXT" = 1 ] && grep -qE "$GQL_RE" <<<"$all_text"; then
+    refuse "this runs a GraphQL mutation that merges, changes labels or edits or deletes a PR, issue, comment or review. It names nothing the guard can check, so it is refused. Use gh pr, gh api with a REST path, or the GitHub MCP tools."
 fi
 
 # A merge endpoint the walk above did not parse (a path built from
 # variables, say) cannot be checked.
 if [ "$MERGE_CHECKED" = 0 ] \
-    && printf '%s' "$cmd" | grep -qE 'pulls/[^[:space:]]*/[^[:space:]/]*merge([^[:alnum:]_]|$)|/merges([^[:alnum:]_]|$)'; then
+    && grep -qE 'pulls/[^[:space:]]*/[^[:space:]/]*merge([^[:alnum:]_]|$)|/merges([^[:alnum:]_]|$)' <<<"$cmd"; then
     case "$cmd" in
         *gh*|*api.github*|*curl*|*wget*)
             refuse "could not tell which PR this merges, so it is refused. Use gh pr merge <number> --repo OWNER/REPO, or the GitHub MCP merge tool." ;;

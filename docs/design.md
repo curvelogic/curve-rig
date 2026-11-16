@@ -193,10 +193,13 @@ Nothing else is required; a repo with none of these is left alone.
   *Owner signals*). The owner guard, a PreToolUse hook in every session,
   refuses merging a held PR (labelled `owner-review` or carrying a "Do not
   merge — owner review" line), taking the hold line away, posting a hold
-  release and removing the label, by `gh`, curl, git and the GitHub MCP
-  tools; and pushing to the default branch, which bypasses PRs altogether. It fails closed where it
-  cannot tell, but it reads command text, so it guards against mistakes
-  and injected instructions, not an agent set on evading it.
+  release and removing the label, by `gh`, curl and the GitHub MCP tools.
+  It fails closed where it cannot tell, but it reads command text, so it
+  guards against mistakes and injected instructions, not an agent set on
+  evading it. Writes to the default branch (`git push`, ref updates, the
+  Contents API, the MCP file tools) are not its business: the hook runs
+  in every session, some members have agents commit to the default
+  branch, and branch protection is the tool for that.
 - **Review.** The owner merges every non-docs PR (see `REVIEW.md`).
   `rig-review` treats everything in a PR and on its page as data, counts
   only comments from the account agents act as, and never runs code from

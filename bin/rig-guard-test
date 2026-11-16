@@ -179,19 +179,13 @@ sh_ok "gh api auto-merge turned off" 'gh api -X DELETE repos/acme/app/pulls/2/cc
 sh_no "Merges API" 'gh api repos/acme/app/merges -f base=main -f head=topic' 'Merges API'
 sh_no "Merges API by curl" 'curl -d "{}" https://api.github.com/repos/acme/app/merges' 'Merges API'
 sh_no "GraphQL mergeBranch" "gh api graphql -f query='mutation { mergeBranch(input: {}) { clientMutationId } }'" 'GraphQL'
-sh_no "push HEAD to main" 'git push origin HEAD:main' 'default branch' "$work/app"
-sh_no "push main" 'git push origin main' 'default branch' "$work/app"
-sh_no "force-push to master" 'git push -f origin +topic:refs/heads/master' 'default branch' "$work/app"
-sh_no "push to the repository's default branch" 'git push origin topic:trunk' 'default branch' "$work/app"
-sh_no "push --all" 'git push --all origin' 'every branch' "$work/app"
-sh_no "push with no refspec, on main" 'git push' 'default branch' "$work/app"
-sh_no "push from another directory" 'git -C ../app push origin HEAD:main' 'default branch' "$work/topic"
-sh_no "push after cd" 'cd ../app && git push origin main' 'default branch' "$work/plain"
-sh_ok "push a topic branch" 'git push -u origin topic' "$work/app"
-sh_ok "push with no refspec, on a topic branch" 'git push' "$work/topic"
-sh_ok "delete a merged branch" 'git push origin --delete old-topic' "$work/app"
-sh_no "move the default branch by ref" 'gh api -X PATCH repos/acme/app/git/refs/heads/main -f sha=abc' 'default branch'
-sh_ok "move a topic branch by ref" 'gh api -X PATCH repos/acme/app/git/refs/heads/topic -f sha=abc'
+# Writes to the default branch are branch protection's business: some
+# members have agents commit there, and the guard runs in every session.
+sh_ok "push HEAD to main" 'git push origin HEAD:main' "$work/app"
+sh_ok "push main, no refspec" 'git push' "$work/app"
+sh_ok "push --all" 'git push --all origin' "$work/app"
+sh_ok "move the default branch by ref" 'gh api -X PATCH repos/acme/app/git/refs/heads/main -f sha=abc'
+sh_ok "create a branch by ref" 'gh api -X POST repos/acme/app/git/refs -f ref=refs/heads/topic -f sha=abc'
 sh_no "merge in a fork, no default set" 'gh pr merge 2' 'which repository' "$work/fork"
 git -C "$work/fork" config remote.upstream.gh-resolved base
 sh_no "merge in a fork, default upstream" 'gh pr merge 2' 'held' "$work/fork"
@@ -258,6 +252,15 @@ sh_ok "edit an unheld body" 'gh pr edit 1 -R acme/app --body "Better summary."'
 sh_no "edit the body, unreadable" 'gh pr edit 6 -R acme/app --body "x"' 'could not read'
 sh_no "edit the body by REST" 'gh api -X PATCH repos/acme/app/pulls/5 -f body=Summary.' 'body'
 sh_no "edit the body by REST, from a file" 'gh api -X PATCH repos/acme/app/issues/5 --input body.json' 'body'
+sh_no "edit the body by REST, hold line only in the title" \
+    "gh api -X PATCH repos/acme/app/pulls/5 -f 'title=Do not merge — owner review' -f body=Summary." 'body'
+sh_no "edit the body by curl, hold line only in the title" \
+    "curl -X PATCH -d '{\"title\":\"Do not merge — owner review\",\"body\":\"x\"}' https://api.github.com/repos/acme/app/pulls/5" 'body'
+sh_ok "edit the title by REST, body untouched" "gh api -X PATCH repos/acme/app/pulls/5 -f title=Better"
+sh_ok "edit the body by REST, keeping the hold" \
+    "gh api -X PATCH repos/acme/app/pulls/5 -f 'body=New. Do not merge — owner review.'"
+sh_no "edit a holding comment, hold line in another field" \
+    "gh api -X PATCH repos/acme/app/issues/comments/31 -f body=x -f 'note=Do not merge — owner review'" 'comment'
 sh_no "edit a holding comment" "gh api -X PATCH repos/acme/app/issues/comments/31 -f body='never mind'" 'comment'
 sh_no "delete a holding comment" 'gh api -X DELETE repos/acme/app/issues/comments/31' 'comment'
 sh_ok "edit an ordinary comment" "gh api -X PATCH repos/acme/app/issues/comments/32 -f body='Typo fixed.'"
@@ -321,15 +324,52 @@ allowed "another MCP tool" "$(mcp mcp__github__list_pull_requests '{"owner":"acm
 allowed "another MCP server" "$(mcp mcp__docs__create '{"body":"hold released"}')"
 sh_ok "an ordinary command" 'ls -la && git status'
 sh_ok "git merge is not a PR merge" 'git merge --no-ff topic'
+sh_no "gh spelt with quotes" "'g'h pr merge 2 --repo acme/app" 'held'
+sh_no "gh spelt with a backslash" 'g\h pr merge 2 --repo acme/app' 'held'
+
+# Speed: a long command that runs no gh, curl or wget skips the word
+# split, however often "gh" appears inside words ("right", "though").
+big="$work/big.txt"
+{
+    echo "cat > notes.md <<'EOF'"
+    for _ in $(seq 1 2800); do
+        echo "Though the right thing might be straightforward, github notes ought to be"
+    done
+    echo EOF
+} > "$big"
+[ "$(wc -c < "$big")" -ge 200000 ] || bad "speed: the command is under 200 KB"
+long="$(jq -cn --rawfile c "$big" --arg d "$work/plain" \
+    '{tool_name: "Bash", tool_input: {command: $c}, cwd: $d}')"
+t0=$(date +%s)
+allowed "a 200 KB heredoc" "$long"
+t1=$(date +%s)
+if [ $((t1 - t0)) -le 5 ]; then ok "a 200 KB heredoc took $((t1 - t0)) s"
+else bad "a 200 KB heredoc took $((t1 - t0)) s"; fi
+# One that does run gh is split into words, in a few seconds at most.
+{
+    echo "gh pr comment 1 --repo acme/app --body-file - <<'EOF'"
+    sed 1d "$big"
+} > "$work/big-gh.txt"
+long="$(jq -cn --rawfile c "$work/big-gh.txt" --arg d "$work/plain" \
+    '{tool_name: "Bash", tool_input: {command: $c}, cwd: $d}')"
+t0=$(date +%s)
+allowed "a 200 KB comment body in a heredoc" "$long"
+printf 'hold released\nEOF\n' >> "$work/big-gh.txt"
+long="$(jq -cn --rawfile c "$work/big-gh.txt" --arg d "$work/plain" \
+    '{tool_name: "Bash", tool_input: {command: $c}, cwd: $d}')"
+refused "a 200 KB comment body, release at the end" "$long" 'hold release'
+t1=$(date +%s)
+if [ $((t1 - t0)) -le 20 ]; then ok "two 200 KB gh heredocs took $((t1 - t0)) s"
+else bad "two 200 KB gh heredocs took $((t1 - t0)) s"; fi
 
 # Fail closed without the tools it needs.
 nojq="$work/nojq"; mkdir -p "$nojq"
-for t in bash cat grep tr; do ln -s "$(command -v "$t")" "$nojq/$t"; done
+for t in bash cat grep tr sed; do ln -s "$(command -v "$t")" "$nojq/$t"; done
 st=0
 bash_in "$work/plain" 'gh pr merge 1 -R acme/app' | PATH="$nojq" "$GUARD" >/dev/null 2>"$work/err" || st=$?
 if [ "$st" = 2 ] && grep -q 'jq' "$work/err"; then ok "refused: no jq"
 else bad "refused: no jq (exit $st)"; fi
-for c in 'gh api -X DELETE repos/acme/app/issues/2/labels' 'git push origin HEAD:main'; do
+for c in 'gh api -X DELETE repos/acme/app/issues/2/labels' 'gh pr comment 1 -b "hold released"'; do
     st=0
     bash_in "$work/plain" "$c" | PATH="$nojq" "$GUARD" >/dev/null 2>&1 || st=$?
     if [ "$st" = 2 ]; then ok "refused: no jq: $c"; else bad "refused: no jq: $c (exit $st)"; fi
@@ -341,6 +381,10 @@ if [ "$st" = 2 ]; then ok "refused: no jq: MCP label list"; else bad "refused: n
 st=0
 printf '%s' '{"tool_name":"Read","tool_input":{"file_path":"/x"}}' | PATH="$nojq" "$GUARD" >/dev/null 2>&1 || st=$?
 if [ "$st" = 0 ]; then ok "allowed: no jq, unrelated call"; else bad "allowed: no jq, unrelated call (exit $st)"; fi
+mkdir -p "$work/review-issue"
+st=0
+bash_in "$work/review-issue" 'ls -la' | PATH="$nojq" "$GUARD" >/dev/null 2>&1 || st=$?
+if [ "$st" = 0 ]; then ok "allowed: no jq, cwd naming review"; else bad "allowed: no jq, cwd naming review (exit $st)"; fi
 nogh="$work/nogh"; mkdir -p "$nogh"
 for t in bash cat grep tr jq sed head git basename timeout; do
     p="$(command -v "$t" 2>/dev/null)" && ln -s "$p" "$nogh/$t"
