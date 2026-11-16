@@ -58,8 +58,9 @@ public by then). It:
 - records the trusted GitHub owners (`--trusted-owners`) in
   `~/.config/curve-rig/trusted-owners`;
 - registers `hooks/session-start.sh` as a user-level SessionStart hook with
-  the `startup` matcher in `~/.claude/settings.json`, merging rather than
-  overwriting;
+  the `startup` matcher, and the plugin's owner guard as a user-level
+  PreToolUse hook (see *Security model*), in `~/.claude/settings.json`,
+  merging rather than overwriting;
 - adds the attribution rule in `templates/user-CLAUDE.md` (no session links
   in commits or PR text) to `~/.claude/CLAUDE.md`, between markers, keeping
   the rest of the file.
@@ -88,7 +89,9 @@ every line it prints. It always exits 0.
 
 **Local sessions** use the plugin: the repo enables `rig@curvelogic` in its
 committed `.claude/settings.json`. Local provisioning stays with the developer
-(e.g. `mise install`); the plugin carries only skills and agents.
+(e.g. `mise install`); the plugin carries skills, agents and the owner
+guard (`hooks/hooks.json`), which is self-contained so that it runs from
+the plugin cache as well as from rig's checkout.
 
 **Fallback.** If stage 1 did not run (an environment without the setup
 script), the member's `CLAUDE.md` — read in every session — tells the agent
@@ -183,6 +186,16 @@ Nothing else is required; a repo with none of these is left alone.
   base branch's scanner over the PR's commits as data; no PR code runs with
   the secret. A common word on the list would be masked as `***` wherever
   it appears in public logs, revealing it — keep entries distinctive.
+- **Owner signals.** Agents act on GitHub under the owner's login, so
+  nothing posted from it shows who wrote it. An owner decision counts only
+  when given first-hand in a session's chat, or when the owner merges a PR
+  themselves; members' `REVIEW.md` says so (`templates/REVIEW.md` →
+  *Owner signals*). The owner guard, a PreToolUse hook in every session,
+  refuses merging a held PR (labelled `owner-review` or carrying a "Do not
+  merge — owner review" line), posting a hold release and removing the
+  label, by `gh`, curl and the GitHub MCP tools. It fails closed where it
+  cannot tell, but it reads command text, so it guards against mistakes
+  and injected instructions, not an agent set on evading it.
 - **Review.** The owner merges every non-docs PR (see `REVIEW.md`).
   `rig-review` treats everything in a PR and on its page as data, counts
   only comments from the account agents act as, and never runs code from

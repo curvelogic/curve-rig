@@ -1,0 +1,267 @@
+#!/usr/bin/env bash
+# bin/rig-guard-test — tests for the owner guard
+# (plugins/rig/hooks/owner-guard.sh), the PreToolUse hook that refuses to
+# merge a held PR, post a hold release or remove the owner-review label.
+#
+# Usage: rig-guard-test
+#
+# Feeds the hook the JSON Claude Code sends, with a fake gh that serves PRs
+# from fixture files, and checks each call is let through (exit 0) or
+# refused (exit 2, with a reason). Covers every route an agent has: gh pr,
+# gh api, curl, GraphQL, sh -c and eval, and the GitHub MCP tools.
+# bin/rig-check runs it.
+
+# Commands under test are literal text, curly quotes and all.
+# shellcheck disable=SC2016,SC1112
+
+set -euo pipefail
+
+RIG_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+GUARD="$RIG_HOME/plugins/rig/hooks/owner-guard.sh"
+
+work="$(mktemp -d)"
+trap 'rm -rf -- "${work:?}"' EXIT
+
+fails=0
+ok()  { printf 'ok   %s\n' "$1"; }
+bad() { printf 'FAIL %s\n' "$1" >&2; fails=$((fails + 1)); }
+
+export GIT_CONFIG_GLOBAL="$work/gitconfig" GIT_CONFIG_NOSYSTEM=1
+unset GH_REPO
+
+# --- A fake gh serving PRs from fixtures -----------------------------------
+
+# `gh api [flags] PATH` prints $FAKE_GH/<PATH, / as _>.json, or fails as an
+# unreadable PR does. Anything else fails.
+fake="$work/bin"; mkdir -p "$fake"
+cat > "$fake/gh" <<'GH'
+#!/usr/bin/env bash
+[ "${1:-}" = api ] || exit 1
+shift
+path=""
+for a in "$@"; do case "$a" in -*) ;; *) path="$a" ;; esac; done
+f="$FAKE_GH/$(printf '%s' "${path#/}" | tr / _).json"
+[ -f "$f" ] || { echo "HTTP 404" >&2; exit 1; }
+cat "$f"
+GH
+chmod +x "$fake/gh"
+export FAKE_GH="$work/gh"; mkdir -p "$FAKE_GH"
+
+# pr N LABELS BODY [ISSUE_COMMENTS REVIEWS REVIEW_COMMENTS], each a JSON value.
+pr() {
+    local b="$FAKE_GH/repos_acme_app"
+    jq -n --argjson l "$2" --arg body "$3" '{labels: $l, body: $body}' > "${b}_issues_$1.json"
+    printf '%s\n' "${4:-[]}" > "${b}_issues_$1_comments.json"
+    printf '%s\n' "${5:-[]}" > "${b}_pulls_$1_reviews.json"
+    printf '%s\n' "${6:-[]}" > "${b}_pulls_$1_comments.json"
+}
+pr 1 '[{"name":"bug"}]' 'Fixes a thing. Please do not merge before CI.' \
+    '[{"body":"Looks fine."}]' '[{"body":""}]'
+pr 2 '[{"name":"Owner-Review"}]' 'A change.'
+pr 3 '[]' 'A change.' '[{"body":"ok"},{"body":"Do not merge — owner review: needs a decision."}]'
+pr 4 '[]' 'A change.' '[]' '[{"body":"do not merge - owner review"}]'
+pr 5 '[]' $'Summary.\n\nDo not merge -- Owner Review.'
+pr 7 '[]' 'A change.' '[]' '[]' '[{"body":"Don’t merge: owner review"}]'
+# 6 has no fixtures: it cannot be read. 8 has its comments page missing.
+pr 8 '[]' 'A change.'
+rm "$FAKE_GH/repos_acme_app_issues_8_comments.json"
+
+# A checkout whose origin is acme/app, for commands that name no repository.
+git init -q "$work/app"
+git -C "$work/app" remote add origin git@github.com:acme/app.git
+mkdir -p "$work/plain"
+
+printf 'hold released, merging\n' > "$work/plain/release.md"
+printf 'All checks pass.\n' > "$work/plain/fine.md"
+mkdir -p "$work/q"
+printf 'mutation { enablePullRequestAutoMerge(input: {}) { clientMutationId } }\n' > "$work/q/q.graphql"
+
+# --- Running the hook -------------------------------------------------------
+
+# hook JSON → exit status, reason in $work/err.
+hook() {
+    local st=0
+    printf '%s' "$1" | PATH="$fake:$PATH" "$GUARD" >"$work/out" 2>"$work/err" || st=$?
+    return "$st"
+}
+bash_in() {   # $1 cwd, $2 command
+    jq -cn --arg c "$2" --arg d "$1" '{tool_name: "Bash", tool_input: {command: $c}, cwd: $d}'
+}
+mcp() {   # $1 tool, $2 input JSON
+    jq -cn --arg t "$1" --argjson i "$2" --arg d "$work/plain" '{tool_name: $t, tool_input: $i, cwd: $d}'
+}
+
+allowed() {   # $1 what, $2 hook JSON
+    local st=0
+    hook "$2" || st=$?
+    if [ "$st" = 0 ] && [ ! -s "$work/out" ]; then ok "allowed: $1"
+    else bad "allowed: $1 (exit $st: $(cat "$work/err"))"; fi
+}
+refused() {   # $1 what, $2 hook JSON, $3 text the reason must contain
+    local st=0
+    hook "$2" || st=$?
+    if [ "$st" = 2 ] && grep -qiF -- "${3:-rig owner guard}" "$work/err"; then ok "refused: $1"
+    else bad "refused: $1 (exit $st: $(cat "$work/err"))"; fi
+}
+sh_ok()  { allowed "$1" "$(bash_in "${3:-$work/plain}" "$2")"; }
+sh_no()  { refused "$1" "$(bash_in "${4:-$work/plain}" "$2")" "${3:-}"; }
+
+# --- Merging ----------------------------------------------------------------
+
+sh_ok "merge an unheld PR" 'gh pr merge 1 --squash --repo acme/app'
+sh_ok "merge with --match-head-commit" 'gh pr merge 1 -R acme/app --squash --match-head-commit abc123'
+sh_no "merge a PR labelled owner-review" 'gh pr merge 2 --repo acme/app' 'owner-review'
+sh_no "merge, hold in a comment" 'gh pr merge -R acme/app 3 --squash' 'held for the owner'
+sh_no "merge, hold in a review" 'gh pr merge --repo=acme/app 4' 'held for the owner'
+sh_no "merge, hold in the body" 'gh pr merge #5 -Racme/app' 'held for the owner'
+sh_no "merge, hold in a review comment" 'gh pr merge https://github.com/acme/app/pull/7' 'held for the owner'
+sh_no "merge an unreadable PR" 'gh pr merge 6 --repo acme/app' 'could not read'
+sh_no "merge, one page unreadable" 'gh pr merge 8 --repo acme/app' 'could not read'
+sh_no "merge with no PR named" 'gh pr merge --squash' 'which PR'
+sh_no "merge a branch name" 'gh pr merge my-branch --repo acme/app' 'which PR'
+sh_no "merge, repo from the checkout" 'gh pr merge 2 --squash' 'held' "$work/app"
+sh_ok "merge, repo from the checkout, unheld" 'gh pr merge 1 --squash' "$work/app"
+sh_no "merge after cd, no repo named" 'cd ../app && gh pr merge 1' 'which repository' "$work/app"
+sh_no "merge, no repo and no checkout" 'gh pr merge 1' 'which repository'
+sh_no "merge, GH_REPO in the command" 'GH_REPO=acme/app gh pr merge 2' 'held'
+sh_no "merge, chained" 'git fetch origin && gh pr merge 2 --repo acme/app --squash' 'held'
+sh_no "merge, by path to gh" '/usr/local/bin/gh pr merge 3 -R acme/app' 'held'
+sh_no "merge, auto-merge" 'gh pr merge 2 --auto --squash --repo acme/app' 'held'
+sh_no "merge, through env" 'env FOO=1 gh pr merge 2 --repo acme/app' 'held'
+sh_no "merge, inside bash -c" 'bash -c "gh pr merge 2 --repo acme/app"' 'held'
+sh_no "merge, inside eval" "eval 'gh pr merge 4 --repo acme/app'" 'held'
+sh_no "merge, inside a subshell" '(gh pr merge 2 --repo acme/app)' 'held'
+sh_no "merge, line-continued" $'gh pr merge \\\n  2 --repo acme/app' 'held'
+sh_no "merge, two in one, second held" 'gh pr merge 1 -R acme/app; gh pr merge 2 -R acme/app' 'held'
+
+sh_no "gh api PUT merge endpoint" 'gh api -X PUT repos/acme/app/pulls/2/merge' 'held'
+sh_no "gh api --method=PUT, leading slash" 'gh api --method=PUT /repos/acme/app/pulls/3/merge' 'held'
+sh_no "gh api merge, fields imply POST" 'gh api repos/acme/app/pulls/5/merge -f merge_method=squash' 'held'
+sh_ok "gh api merge of an unheld PR" 'gh api -X PUT repos/acme/app/pulls/1/merge -f merge_method=squash'
+sh_ok "gh api GET of the merge endpoint" 'gh api repos/acme/app/pulls/2/merge'
+sh_no "gh api merge, {owner}/{repo}" 'gh api -X PUT "repos/{owner}/{repo}/pulls/2/merge"' 'held' "$work/app"
+sh_no "gh api merge, path from a variable" 'gh api -X PUT "repos/acme/app/pulls/$N/merge"' 'which PR'
+sh_no "gh api merge, full URL" 'gh api -X PUT https://api.github.com/repos/acme/app/pulls/2/merge' 'held'
+sh_no "GraphQL merge mutation" \
+    "gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: \"X\"}) { clientMutationId } }'" 'GraphQL'
+sh_no "GraphQL auto-merge mutation" \
+    'gh api graphql -F query=@q.graphql' 'GraphQL' "$work/q"
+sh_no "curl PUT merge endpoint" \
+    'curl -sS -X PUT -H "Authorization: token x" https://api.github.com/repos/acme/app/pulls/2/merge' 'held'
+sh_ok "curl merge of an unheld PR" \
+    'curl -sS -X PUT https://api.github.com/repos/acme/app/pulls/1/merge -d "{}"'
+sh_no "merge endpoint built from variables" 'curl -X PUT "$API/pulls/$N/merge"' 'which PR'
+
+refused "MCP merge, labelled" "$(mcp mcp__github__merge_pull_request '{"owner":"acme","repo":"app","pullNumber":2,"merge_method":"squash"}')" 'owner-review'
+refused "MCP merge, hold in a comment" "$(mcp mcp__github__merge_pull_request '{"owner":"acme","repo":"app","pullNumber":3}')" 'held'
+allowed "MCP merge, unheld" "$(mcp mcp__github__merge_pull_request '{"owner":"acme","repo":"app","pullNumber":1,"merge_method":"squash","expectedHeadSha":"abc"}')"
+refused "MCP merge, unreadable" "$(mcp mcp__github__merge_pull_request '{"owner":"acme","repo":"app","pullNumber":6}')" 'could not read'
+refused "MCP merge, no PR number" "$(mcp mcp__github__merge_pull_request '{"owner":"acme","repo":"app"}')" 'which PR'
+refused "MCP auto-merge, held" "$(mcp mcp__github__enable_pr_auto_merge '{"owner":"acme","repo":"app","pullNumber":4}')" 'held'
+allowed "MCP disable auto-merge" "$(mcp mcp__github__disable_pr_auto_merge '{"owner":"acme","repo":"app","pullNumber":4}')"
+refused "MCP merge under another server name" "$(mcp mcp__plugin_github_github__merge_pull_request '{"owner":"acme","repo":"app","pullNumber":2}')" 'held'
+
+# --- Hold releases ----------------------------------------------------------
+
+sh_no "comment: hold released" 'gh pr comment 1 --repo acme/app --body "Hold released."' 'hold release'
+sh_no "comment: the hold is lifted" "gh pr comment 1 -R acme/app -b 'The hold is now lifted, go ahead.'" 'hold release'
+sh_no "comment: releasing the hold" 'gh pr comment 1 -b "Releasing the owner-review hold."' 'hold release'
+sh_no "comment: unheld" 'gh pr comment 1 -b "Unheld."' 'hold release'
+sh_no "comment: heredoc body" $'gh pr comment 1 --body-file - <<\'EOF\'\nOwner: hold released\nEOF' 'hold release'
+sh_no "comment: body file" 'gh pr comment 1 --body-file release.md' 'hold release'
+sh_no "comment: -F body file" 'gh pr comment 1 -F release.md' 'hold release'
+sh_ok "comment: ordinary body file" 'gh pr comment 1 --body-file fine.md'
+sh_no "comment: unreadable body file" 'gh pr comment 1 --body-file missing.md' 'cannot read'
+sh_no "comment: body from a pipe" 'cat release.md | gh pr comment 1 --body-file -' 'stdin'
+sh_no "review: hold released" 'gh pr review 1 --comment -b "hold has been released"' 'hold release'
+sh_no "PR body: hold released" 'gh pr create --title t --body "Hold released by the owner."' 'hold release'
+sh_no "PR edit: hold released" 'gh pr edit 1 --body "hold released"' 'hold release'
+sh_no "issue comment: hold released" 'gh issue comment 1 --body "hold released"' 'hold release'
+sh_no "gh api comment: hold released" \
+    "gh api repos/acme/app/issues/1/comments -f body='Hold released.'" 'hold release'
+sh_no "gh api comment: body from a file" \
+    'gh api repos/acme/app/issues/1/comments -F body=@release.md' 'hold release'
+sh_no "curl comment: hold released" \
+    "curl -X POST -d '{\"body\":\"hold released\"}' https://api.github.com/repos/acme/app/issues/1/comments" 'hold release'
+sh_no "curl comment: data file" \
+    'curl -d @release.md https://api.github.com/repos/acme/app/issues/1/comments' 'hold release'
+sh_ok "comment about the rule" \
+    'gh pr comment 1 -b "Only the owner can release the hold; agents never post a hold release."'
+sh_ok "comment posting a hold" 'gh pr comment 1 -b "Do not merge — owner review: needs a decision."'
+sh_ok "not GitHub: a commit message" 'git commit -m "Hold released"'
+sh_ok "not GitHub: a search" 'grep -rn "hold released" docs'
+sh_ok "read-only gh" 'gh pr view 1 --json body,labels'
+
+refused "MCP comment: hold released" "$(mcp mcp__github__add_issue_comment '{"owner":"acme","repo":"app","issue_number":1,"body":"Hold released by the owner."}')" 'hold release'
+refused "MCP review: hold lifted" "$(mcp mcp__github__pull_request_review_write '{"method":"create","owner":"acme","repo":"app","pullNumber":1,"body":"The hold has been lifted.","event":"COMMENT"}')" 'hold release'
+refused "MCP PR body: hold released" "$(mcp mcp__github__create_pull_request '{"owner":"acme","repo":"app","title":"t","head":"b","base":"main","body":"hold released"}')" 'hold release'
+refused "MCP PR update: hold released" "$(mcp mcp__github__update_pull_request '{"owner":"acme","repo":"app","pullNumber":1,"body":"hold released"}')" 'hold release'
+refused "MCP review reply: hold released" "$(mcp mcp__github__add_reply_to_pull_request_comment '{"owner":"acme","repo":"app","pullNumber":1,"commentId":9,"body":"Hold released."}')" 'hold release'
+refused "MCP comment edit: hold released" "$(mcp mcp__github__update_issue_comment '{"owner":"acme","repo":"app","comment_id":9,"body":"hold released"}')" 'hold release'
+allowed "MCP comment posting a hold" "$(mcp mcp__github__add_issue_comment '{"owner":"acme","repo":"app","issue_number":1,"body":"Do not merge — owner review"}')"
+allowed "MCP comment, ordinary" "$(mcp mcp__github__add_issue_comment '{"owner":"acme","repo":"app","issue_number":1,"body":"rig-review round 1: pass at abc"}')"
+allowed "MCP read of a held PR" "$(mcp mcp__github__pull_request_read '{"method":"get","owner":"acme","repo":"app","pullNumber":2}')"
+
+# --- The owner-review label -------------------------------------------------
+
+sh_no "gh pr edit --remove-label" 'gh pr edit 2 --remove-label owner-review' 'owner-review'
+sh_no "gh pr edit --remove-label, in a list" 'gh pr edit 2 --remove-label "wip, Owner-Review"' 'owner-review'
+sh_no "gh pr edit --remove-label=" 'gh pr edit 2 --remove-label=owner-review' 'owner-review'
+sh_no "gh issue edit --remove-label" 'gh issue edit 2 --remove-label owner-review' 'owner-review'
+sh_ok "gh pr edit, adding it" 'gh pr edit 1 --add-label owner-review --remove-label wip'
+sh_no "gh label delete" 'gh label delete owner-review --yes' 'owner-review'
+sh_no "gh label edit (rename)" 'gh label edit owner-review --name reviewed' 'owner-review'
+sh_ok "gh label create" 'gh label create owner-review --color ff0000'
+sh_no "gh api DELETE the label from a PR" 'gh api -X DELETE repos/acme/app/issues/2/labels/owner-review' 'owner-review'
+sh_no "gh api DELETE the repository label" 'gh api --method DELETE repos/acme/app/labels/Owner-Review' 'owner-review'
+sh_no "gh api PATCH (rename) the label" 'gh api -X PATCH repos/acme/app/labels/owner-review -f new_name=x' 'owner-review'
+sh_no "gh api PUT a label set without it" "gh api -X PUT repos/acme/app/issues/2/labels -f 'labels[]=bug'" 'owner-review'
+sh_ok "gh api PUT on an unlabelled PR" "gh api -X PUT repos/acme/app/issues/1/labels -f 'labels[]=bug'"
+sh_no "gh api DELETE every label" 'gh api -X DELETE repos/acme/app/issues/2/labels' 'owner-review'
+sh_no "gh api DELETE every label, unreadable" 'gh api -X DELETE repos/acme/app/issues/6/labels' 'could not read'
+sh_no "gh api PATCH labels without it" "gh api -X PATCH repos/acme/app/issues/2 -f 'labels[]=bug'" 'owner-review'
+sh_ok "gh api GET the label" 'gh api repos/acme/app/labels/owner-review'
+sh_no "curl DELETE the label" \
+    'curl -X DELETE https://api.github.com/repos/acme/app/issues/2/labels/owner-review' 'owner-review'
+sh_no "GraphQL label removal" \
+    "gh api graphql -f query='mutation { removeLabelsFromLabelable(input: {}) { clientMutationId } }'" 'GraphQL'
+
+refused "MCP issue_write dropping it" "$(mcp mcp__github__issue_write '{"method":"update","owner":"acme","repo":"app","issue_number":2,"labels":["bug"]}')" 'owner-review'
+allowed "MCP issue_write keeping it" "$(mcp mcp__github__issue_write '{"method":"update","owner":"acme","repo":"app","issue_number":2,"labels":["bug","owner-review"]}')"
+allowed "MCP issue_write on an unlabelled PR" "$(mcp mcp__github__issue_write '{"method":"update","owner":"acme","repo":"app","issue_number":1,"labels":["bug"]}')"
+refused "MCP issue_write, unreadable" "$(mcp mcp__github__issue_write '{"method":"update","owner":"acme","repo":"app","issue_number":6,"labels":[]}')" 'could not read'
+refused "MCP label tool removing it" "$(mcp mcp__github__remove_label '{"owner":"acme","repo":"app","issue_number":2,"label":"owner-review"}')" 'owner-review'
+refused "MCP label tool deleting it" "$(mcp mcp__github__label_write '{"method":"delete","owner":"acme","repo":"app","name":"owner-review"}')" 'owner-review'
+allowed "MCP label tool creating it" "$(mcp mcp__github__label_write '{"method":"create","owner":"acme","repo":"app","name":"owner-review"}')"
+allowed "MCP get_label" "$(mcp mcp__github__get_label '{"owner":"acme","repo":"app","name":"owner-review"}')"
+
+# --- Everything else passes -------------------------------------------------
+
+allowed "another tool" '{"tool_name":"Read","tool_input":{"file_path":"/x"},"cwd":"/"}'
+allowed "another MCP tool" "$(mcp mcp__github__list_pull_requests '{"owner":"acme","repo":"app"}')"
+allowed "another MCP server" "$(mcp mcp__docs__create '{"body":"hold released"}')"
+sh_ok "an ordinary command" 'ls -la && git status'
+sh_ok "git merge is not a PR merge" 'git merge --no-ff topic'
+
+# Fail closed without the tools it needs.
+nojq="$work/nojq"; mkdir -p "$nojq"
+for t in bash cat grep tr; do ln -s "$(command -v "$t")" "$nojq/$t"; done
+st=0
+bash_in "$work/plain" 'gh pr merge 1 -R acme/app' | PATH="$nojq" "$GUARD" >/dev/null 2>"$work/err" || st=$?
+if [ "$st" = 2 ] && grep -q 'jq' "$work/err"; then ok "refused: no jq"
+else bad "refused: no jq (exit $st)"; fi
+st=0
+printf '%s' '{"tool_name":"Read","tool_input":{"file_path":"/x"}}' | PATH="$nojq" "$GUARD" >/dev/null 2>&1 || st=$?
+if [ "$st" = 0 ]; then ok "allowed: no jq, unrelated call"; else bad "allowed: no jq, unrelated call (exit $st)"; fi
+nogh="$work/nogh"; mkdir -p "$nogh"
+for t in bash cat grep tr jq sed head git basename timeout; do
+    p="$(command -v "$t" 2>/dev/null)" && ln -s "$p" "$nogh/$t"
+done
+st=0
+bash_in "$work/plain" 'gh pr merge 1 -R acme/app' | PATH="$nogh" "$GUARD" >/dev/null 2>"$work/err" || st=$?
+if [ "$st" = 2 ] && grep -q 'could not read' "$work/err"; then ok "refused: no gh"
+else bad "refused: no gh (exit $st)"; fi
+
+echo
+if [ "$fails" -gt 0 ]; then echo "rig-guard-test: $fails failed" >&2; exit 1; fi
+echo "rig-guard-test: ok"
