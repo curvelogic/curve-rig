@@ -12,12 +12,13 @@ deploy pipelines for the apps themselves live elsewhere.
 
 | Part | What it does |
 |---|---|
-| `bin/rig-install` | Installs rig into `~/.claude` — the user-level skills, agents and SessionStart hook. Run by a cloud environment's setup script. |
+| `bin/rig-install` | Installs rig into `~/.claude` — the user-level skills, agents, SessionStart hook and owner guard. Run by a cloud environment's setup script. |
 | `hooks/session-start.sh` | Provisions every trusted repo in the session: runs its `.rig/setup.sh`, installs pinned `bd`/`dolt`, materialises the beads store. |
 | `bin/rig-relay` | The beads relay: a session stages its beads writes as a file and pushes it on an inbox branch; a member's workflow applies it. |
 | `.github/workflows/beads-relay.yml` | The relay's reusable workflow, called by each beads-using member. |
 | `lib/` | Shell functions repos can source from their own `.rig/setup.sh`; `lib/pins.sh` pins every download. |
-| `plugins/rig/` | The Claude Code plugin: skills and agents, for local sessions. |
+| `plugins/rig/` | The Claude Code plugin: skills, agents and the owner guard, for local sessions. |
+| `plugins/rig/hooks/owner-guard.sh` | A PreToolUse hook that refuses to merge a held PR, post a hold release or remove the `owner-review` label (*The owner guard*). |
 | `templates/` | Skeletons for a member repo's `CLAUDE.md` and `REVIEW.md`. |
 | `docs/design.md` | Why it is shaped like this — read before changing delivery. |
 
@@ -28,8 +29,8 @@ with several repositories runs none of their hooks. So rig is delivered in two
 stages that do not depend on any repository's settings:
 
 1. **Environment setup script** (before the session starts):
-   `rig-install` puts rig's skills, agents and a user-level SessionStart hook
-   into `~/.claude`.
+   `rig-install` puts rig's skills, agents, a user-level SessionStart hook
+   and the owner guard into `~/.claude`.
 2. **SessionStart hook** (once the session's network proxy is up): provisions
    each repository present.
 
@@ -133,6 +134,47 @@ reviewed head's SHA, then deletes the branch with `git push origin
   rules to the classifier anyway.
 - **Branch deletion** may still be refused by the session's git proxy
   (`docs/design.md`, constraint 5); the rule only lets the command run.
+
+### The owner guard
+
+Agents act on GitHub under the owner's login, so a comment such as a hold
+release proves nothing about who wrote it. Members' `REVIEW.md` says what
+counts as the owner's decision (`templates/REVIEW.md` → *Owner signals*),
+and `plugins/rig/hooks/owner-guard.sh`, a PreToolUse hook, enforces the
+part agents could get wrong. It refuses:
+
+- merging a held PR — one labelled `owner-review`, or whose body, a
+  comment or a review carries "Do not merge — owner review" — by
+  `gh pr merge`, `gh api` or curl to a merge or auto-merge endpoint, or
+  the GitHub MCP merge and auto-merge tools; and, since they name no PR
+  to check, the Merges API and any GraphQL merge mutation;
+- taking a hold away: editing or deleting the PR body, comment or review
+  that carries the hold line;
+- posting text that reads as a hold release, in a comment, review, PR or
+  issue, by `gh`, curl or the GitHub MCP tools;
+- removing the `owner-review` label, or deleting or renaming it.
+
+It reads the PR with `gh api` (REST, which cloud sessions allow) and fails
+closed: a merge it cannot tie to one readable PR and repository, a
+payload it cannot read, a GraphQL mutation that edits or deletes, or any
+GitHub call when `jq` is missing, is refused with a message saying how to
+proceed. A refused call does not run; the session gets the guard's reason
+as the tool's result, for example:
+
+```text
+PreToolUse:Bash hook error: [command hook]: rig owner guard: acme/app#12 is
+held for the owner: it carries the `owner-review` label. Only the owner
+merges a held PR, by pressing merge on GitHub; ...
+```
+
+`rig-install` registers it at user level for cloud sessions, which load no
+plugins; the plugin's `hooks/hooks.json` registers it for local ones. It
+is a guard against mistakes and injected instructions, not a sandbox: a
+command assembled at run time is not seen. It leaves writes to the
+default branch (`git push`, ref updates, the Contents API, the MCP file
+tools) to branch protection: it runs in every session, and some members
+have agents commit to the default branch. `bin/rig-guard-test` covers
+every route above.
 
 ## Using rig locally
 

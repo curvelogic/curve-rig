@@ -2,8 +2,9 @@
 # bin/rig-lib-test — regression tests for provisioning, the installer and
 # the denylist check, without GitHub, bd or dolt: the trust check, repo
 # discovery, the hook's stdin and stdout, the beads bootstrap's clean-up,
-# reading .rig/beads-ref, settings.json handling and the opt-in merge
-# rules, and what the denylist scan covers.
+# reading .rig/beads-ref, settings.json handling, the owner guard's
+# registration and the opt-in merge rules, and what the denylist scan
+# covers. bin/rig-guard-test covers the guard itself.
 #
 # Usage: rig-lib-test
 #
@@ -323,6 +324,16 @@ check "other settings kept" jq -e '.theme == "dark"' "$work/real/settings.json"
 check "one rig hook, startup only, alongside the other" jq -e '
     (.hooks.SessionStart | length == 2)
     and ([.hooks.SessionStart[] | select(.matcher == "startup")] | length == 1)' "$work/real/settings.json"
+# shellcheck disable=SC2016 # jq variables, not shell ones
+check "one owner guard, for Bash and MCP tools" jq -e --arg g "$RIG_HOME/plugins/rig/hooks/owner-guard.sh" '
+    [.hooks.PreToolUse[] | select(.hooks[0].command | contains($g))]
+    | length == 1 and .[0].matcher == "Bash|mcp__.*"' "$work/real/settings.json"
+check "the guard's registered path exists" test -x "$RIG_HOME/plugins/rig/hooks/owner-guard.sh"
+# shellcheck disable=SC2016 # ${CLAUDE_PLUGIN_ROOT} is literal
+check "the plugin registers the same guard" jq -e '
+    .hooks.PreToolUse[0].matcher == "Bash|mcp__.*"
+    and (.hooks.PreToolUse[0].hooks[0].command | contains("${CLAUDE_PLUGIN_ROOT}/hooks/owner-guard.sh"))' \
+    "$RIG_HOME/plugins/rig/hooks/hooks.json"
 check "trusted owners lower-cased" test "$(cat "$XDG_CONFIG_HOME/curve-rig/trusted-owners")" = $'acme\nother'
 # The user-level CLAUDE.md: rig's attribution block merged in once, the
 # rest of the file kept, through a symlink, idempotently.

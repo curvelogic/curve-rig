@@ -33,13 +33,14 @@ bin/rig-relay             beads relay: stage/push (session), collect/apply (CI)
 bin/rig-relay-test        the relay's git side against a local origin
 bin/rig-lib-test          provisioning, installer and denylist regressions
 bin/rig-beads-test        the relay end to end with the pinned bd and dolt
+bin/rig-guard-test        the owner guard, every route, with a fake gh
 hooks/session-start.sh    stage 2: provision trusted repos in the session
 lib/common.sh             logging, deadline, restores, discovery, trust
 lib/pins.sh               pinned versions and digests of every download
 lib/beads.sh              bd + dolt install, beads store bootstrap
 lib/relay.sh              relay staging, staleness gate, apply
 .github/workflows/        CI, denylist, reusable beads relay
-plugins/rig/              the Claude Code plugin (skills, agents)
+plugins/rig/              the Claude Code plugin (skills, agents, owner guard)
 .claude-plugin/           marketplace manifest
 templates/                member-repo CLAUDE.md / REVIEW.md, user CLAUDE.md rule
 docs/                     design and plan
@@ -53,7 +54,8 @@ bin/rig-check
 
 Runs `bash -n` and shellcheck on every script, actionlint on the workflows,
 validates every JSON file and the plugin/marketplace manifests, and runs
-`bin/rig-relay-test`, `bin/rig-lib-test` and `bin/rig-beads-test`.
+`bin/rig-relay-test`, `bin/rig-lib-test`, `bin/rig-guard-test` and
+`bin/rig-beads-test`.
 Without shellcheck, actionlint, bd or dolt installed it skips what needs
 them locally and fails in CI; `bin/rig-ci-tools` installs the pinned
 versions CI uses. CI runs the same; a separate workflow runs the denylist
