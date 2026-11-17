@@ -25,11 +25,42 @@ RIG_RELAY_MAX_BYTES=$(( 16 * 1024 * 1024 ))
 
 # The storage mode bd uses for REPO's beads store: embedded, server or
 # proxied-server, as bd resolves it (metadata.json and the environment).
+#
+# `bd context` can refuse a store that every other bd command opens: bd
+# 1.3.1 rejects a .beads directory under /home/ that is outside the current
+# user's home, as the account database gives it, so a session running as
+# root on a checkout under /home/<user> gets "BEADS_DIR points to unsafe
+# location". When bd context gives no mode, rig reads metadata.json's
+# dolt_mode, which is what bd context reports whenever it is set. With no
+# dolt_mode bd infers the mode from hosts and config.yaml, and rig does not
+# guess.
 rig_relay_mode() {
     local ctx mode
     ctx="$(cd "$1" && timeout 60 bd context --json </dev/null 2>/dev/null)" &&
         mode="$(jq -r '.dolt_mode // empty' <<< "$ctx" 2>/dev/null)" &&
-        [ -n "$mode" ] || { rig_warn "bd cannot tell the beads storage mode of $1"; return 1; }
+        [ -n "$mode" ] ||
+        mode="$(_rig_relay_metadata_mode "$1")" ||
+        { rig_warn "bd cannot tell the beads storage mode of $1"; return 1; }
+    printf '%s\n' "$mode"
+}
+
+# The dolt_mode metadata.json records for REPO's store, lower-cased: in
+# $BEADS_DIR when that is set (relative to REPO, as bd reads it), else
+# REPO/.beads. Fails when there is no metadata.json, the backend is not
+# dolt, or no known mode is recorded.
+_rig_relay_metadata_mode() {
+    local dir="${BEADS_DIR:-.beads}" meta mode
+    case "$dir" in /*) ;; *) dir="$1/$dir" ;; esac
+    meta="$dir/metadata.json"
+    [ -f "$meta" ] || return 1
+    mode="$(jq -r 'if (.backend // "dolt" | ascii_downcase) == "dolt"
+                   then .dolt_mode // empty | ascii_downcase else empty end' \
+                "$meta" 2>/dev/null)" || return 1
+    case "$mode" in
+        embedded|server|proxied-server) ;;
+        *) return 1 ;;
+    esac
+    rig_log "bd context gave no storage mode for $1; using $mode from $meta" >&2
     printf '%s\n' "$mode"
 }
 
