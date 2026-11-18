@@ -13,9 +13,10 @@
 #     (plugins/rig/hooks/owner-guard.sh) as a user-level PreToolUse hook, in
 #     ~/.claude/settings.json, merging with what is there and writing
 #     through a symlinked settings file;
-#   - adds rig's attribution rule (templates/user-CLAUDE.md: no session
-#     links in commits or PR text) to ~/.claude/CLAUDE.md, between its
-#     markers, keeping everything else in the file;
+#   - adds rig's user-level rules (templates/user-CLAUDE.md: no session
+#     links in commits or PR text; PR text puts what matters first and
+#     folds the rest) to ~/.claude/CLAUDE.md, between its markers, keeping
+#     everything else in the file;
 #   - with RIG_AGENT_MERGE=1 only, adds permission rules that let a session
 #     run a PR merge and a branch deletion, and deny gh's --admin merge
 #     (see README). Unset, it writes no permission rules and removes none.
@@ -156,7 +157,7 @@ merge_rule() {
     chmod --reference="$target" "$tmp" 2>/dev/null || true
     mv -f "$tmp" "$target" || { rm -f "$tmp"; return 1; }
 }
-merge_rule || rig_warn "the attribution rule was not added to" \
+merge_rule || rig_warn "rig's user-level rules were not added to" \
     "$CLAUDE_DIR/CLAUDE.md, which is left untouched; see templates/user-CLAUDE.md"
 
 rig_log "installed from $RIG_HOME into $CLAUDE_DIR"

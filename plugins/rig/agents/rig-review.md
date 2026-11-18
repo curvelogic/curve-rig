@@ -399,6 +399,15 @@ Begin every verdict comment with one line, `rig-review round <n>:
 second, independent review), naming the head your verdict covers. A
 re-review relies on that line.
 
+Lay out every verdict comment for a reader in a hurry. Under that first
+line, keep visible the verdict, each blocking finding, and anything the
+owner must do or decide. Fold the rest into `<details>` sections, one per
+topic, with a summary that says what is inside, such as "What I ran (all
+pass)" or "Non-blocking (3)": what you checked, commands and their
+results, measurements, fault injections, and the non-blocking findings.
+Leave a blank line after `<summary>` and before `</details>` so the
+Markdown inside renders.
+
 - **Send back** for any blocking finding, below the round limit: one PR
   comment listing each one — file, line, what is wrong, what acceptable
   looks like — and the non-blocking ones under their own heading.
