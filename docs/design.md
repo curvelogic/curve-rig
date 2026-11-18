@@ -61,9 +61,10 @@ public by then). It:
   the `startup` matcher, and the plugin's owner guard as a user-level
   PreToolUse hook (see *Security model*), in `~/.claude/settings.json`,
   merging rather than overwriting;
-- adds the attribution rule in `templates/user-CLAUDE.md` (no session links
-  in commits or PR text) to `~/.claude/CLAUDE.md`, between markers, keeping
-  the rest of the file.
+- adds rig's user-level rules in `templates/user-CLAUDE.md` (no session
+  links in commits or PR text; PR text puts what matters first and folds
+  the rest) to `~/.claude/CLAUDE.md`, between markers, keeping the rest of
+  the file.
 - with `RIG_AGENT_MERGE=1` only, adds user-level permission rules that let
   a session run a PR merge and a branch deletion and deny `gh`'s `--admin`
   merge (README → *Letting agents merge*). User level because a
