@@ -62,6 +62,12 @@ pr 3 '[]' 'A change.' '[{"body":"ok"},{"body":"Do not merge — owner review: ne
 pr 4 '[]' 'A change.' '[]' '[{"body":"do not merge - owner review"}]'
 pr 5 '[]' $'Summary.\n\nDo not merge -- Owner Review.'
 pr 7 '[]' 'A change.' '[]' '[]' '[{"body":"Don’t merge: owner review"}]'
+# 9 only mentions the hold line, quoted, in a review; 10 mentions it in
+# backticks and curly quotes but also carries a real hold on another line;
+# 11 opens a quote it never closes.
+pr 9 '[]' 'A change.' '[]' '[{"body":"**Holds.** None: no `owner-review` label and no \"Do not merge — owner review\" hold."}]'
+pr 10 '[]' 'A change.' '[{"body":"Mentions `Do not merge — owner review` and “Do not merge — owner review”."},{"body":"Do not merge — owner review: needs a ruling."}]'
+pr 11 '[]' $'A change, "Do not merge — owner review\nstill held.'
 # 6 has no fixtures: it cannot be read. 8 has its comments page missing.
 pr 8 '[]' 'A change.'
 rm "$FAKE_GH/repos_acme_app_issues_8_comments.json"
@@ -136,6 +142,9 @@ sh_no "merge, hold in a comment" 'gh pr merge -R acme/app 3 --squash' 'held for 
 sh_no "merge, hold in a review" 'gh pr merge --repo=acme/app 4' 'held for the owner'
 sh_no "merge, hold in the body" 'gh pr merge #5 -Racme/app' 'held for the owner'
 sh_no "merge, hold in a review comment" 'gh pr merge https://github.com/acme/app/pull/7' 'held for the owner'
+sh_ok "merge, hold line only quoted in a review" 'gh pr merge 9 --repo acme/app'
+sh_no "merge, quoted mentions and a real hold" 'gh pr merge 10 --repo acme/app' 'held for the owner'
+sh_no "merge, hold inside an unclosed quote" 'gh pr merge 11 --repo acme/app' 'held for the owner'
 sh_no "merge an unreadable PR" 'gh pr merge 6 --repo acme/app' 'could not read'
 sh_no "merge, one page unreadable" 'gh pr merge 8 --repo acme/app' 'could not read'
 sh_no "merge with no PR named" 'gh pr merge --squash' 'which PR'

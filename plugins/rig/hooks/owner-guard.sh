@@ -7,7 +7,8 @@
 # refuses the tool calls that would let an agent stand in for the owner:
 #
 #   - merging a held PR: one labelled `owner-review`, or whose body,
-#     comments or reviews carry a "Do not merge — owner review" line. Covers
+#     comments or reviews carry a "Do not merge — owner review" line
+#     (unquoted: a quoted mention of it is not a hold). Covers
 #     `gh pr merge`, `gh api` and curl calls to a merge or auto-merge
 #     endpoint, GraphQL merge mutations, and the GitHub MCP merge and
 #     auto-merge tools; and, since it lands a branch with no PR to check,
@@ -38,6 +39,15 @@ set -euo pipefail
 
 LABEL="owner-review"
 HOLD_RE="(do not|don[^[:alnum:][:space:]]{0,3}t)[[:space:]]+merge[^[:alnum:]]{1,8}owner[[:space:]-]*review"
+# A mention of the hold line is not a hold: text in quotes ("…", “…”) or
+# backticks on one line is dropped before matching, so a review can say
+# there is no "Do not merge — owner review" hold. A hold is posted
+# unquoted. A quote left open at the end of a line is not dropped, so the
+# check still fails closed on it.
+unquote() {
+    # shellcheck disable=SC2016 # the backticks are literal
+    sed -e 's/“/"/g' -e 's/”/"/g' -e 's/`[^`]*`//g' -e 's/"[^"]*"//g'
+}
 # A hold release: "hold released", "the hold is lifted", "releasing the
 # hold", "unheld". Prose about the rule ("only the owner can release the
 # hold", "agents never post a hold release") is not matched.
@@ -102,7 +112,7 @@ hold_reason() {
         out="$(printf '%s' "$out" | jq -r '.[]? | .body // ""')" || return 1
         bodies="$bodies"$'\n'"$out"
     done
-    if grep -qiE "$HOLD_RE" <<<"$bodies"; then
+    if unquote <<<"$bodies" | grep -qiE "$HOLD_RE"; then
         printf 'its body or a comment carries a "Do not merge — owner review" hold'
     fi
 }
@@ -146,7 +156,7 @@ check_text() {   # refuse if text $1 reads as a hold release
     [ -z "$hit" ] || refuse "this posts text that reads as a hold release (\"$hit\"). $RELEASE_ADVICE"
 }
 
-holds() { grep -qiE "$HOLD_RE" <<<"$1"; }
+holds() { unquote <<<"$1" | grep -qiE "$HOLD_RE"; }
 
 UNREADABLE="so it is refused. Check gh is installed and can read the repository, then retry; if it still cannot, leave this to the owner."
 
