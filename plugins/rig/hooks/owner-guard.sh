@@ -112,7 +112,7 @@ hold_reason() {
         out="$(printf '%s' "$out" | jq -r '.[]? | .body // ""')" || return 1
         bodies="$bodies"$'\n'"$out"
     done
-    bodies="$(unquote <<<"$bodies")"
+    bodies="$(unquote <<<"$bodies")" || return 1
     if grep -qiE "$HOLD_RE" <<<"$bodies"; then
         printf 'its body or a comment carries a "Do not merge — owner review" hold'
     fi
@@ -158,7 +158,12 @@ check_text() {   # refuse if text $1 reads as a hold release
 }
 
 # A here-string, not a pipe, feeds grep -q: see the note further down.
-holds() { local u; u="$(unquote <<<"$1")"; grep -qiE "$HOLD_RE" <<<"$u"; }
+# If the text cannot be unquoted, the call is refused: fail closed.
+holds() {
+    local u
+    u="$(unquote <<<"$1")" || refuse "could not check a text for an owner hold, so this is refused. Retry; if it fails again, leave it to the owner."
+    grep -qiE "$HOLD_RE" <<<"$u"
+}
 
 UNREADABLE="so it is refused. Check gh is installed and can read the repository, then retry; if it still cannot, leave this to the owner."
 
