@@ -68,6 +68,11 @@ pr 7 '[]' 'A change.' '[]' '[]' '[{"body":"Don’t merge: owner review"}]'
 pr 9 '[]' 'A change.' '[]' '[{"body":"**Holds.** None: no `owner-review` label and no \"Do not merge — owner review\" hold."}]'
 pr 10 '[]' 'A change.' '[{"body":"Mentions `Do not merge — owner review` and “Do not merge — owner review”."},{"body":"Do not merge — owner review: needs a ruling."}]'
 pr 11 '[]' $'A change, "Do not merge — owner review\nstill held.'
+# 12 holds in its body and has a 2 MB comment, long enough that a
+# pipe into grep -q would fail its writer and lose the match.
+pr 12 '[]' 'Do not merge — owner review.'
+awk 'BEGIN { for (i = 0; i < 100000; i++) print "A long comment line." }' | jq -Rs '[{body: .}]' \
+    > "$FAKE_GH/repos_acme_app_issues_12_comments.json"
 # 6 has no fixtures: it cannot be read. 8 has its comments page missing.
 pr 8 '[]' 'A change.'
 rm "$FAKE_GH/repos_acme_app_issues_8_comments.json"
@@ -145,6 +150,7 @@ sh_no "merge, hold in a review comment" 'gh pr merge https://github.com/acme/app
 sh_ok "merge, hold line only quoted in a review" 'gh pr merge 9 --repo acme/app'
 sh_no "merge, quoted mentions and a real hold" 'gh pr merge 10 --repo acme/app' 'held for the owner'
 sh_no "merge, hold inside an unclosed quote" 'gh pr merge 11 --repo acme/app' 'held for the owner'
+sh_no "merge, hold in the body and a 2 MB comment" 'gh pr merge 12 --repo acme/app' 'held for the owner'
 sh_no "merge an unreadable PR" 'gh pr merge 6 --repo acme/app' 'could not read'
 sh_no "merge, one page unreadable" 'gh pr merge 8 --repo acme/app' 'could not read'
 sh_no "merge with no PR named" 'gh pr merge --squash' 'which PR'

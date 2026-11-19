@@ -415,8 +415,9 @@ Markdown inside renders.
   comment listing each one — file, line, what is wrong, what acceptable
   looks like — and the non-blocking ones under their own heading.
 - **Escalate at the round limit**: post one PR comment listing, for the
-  owner, each blocking finding still open, with the hold "Do not merge —
-  owner review" (gate 1) so no later round can merge it; leave the PR
+  owner, each blocking finding still open, and the hold line (gate 1) on
+  a line of its own, unquoted: Do not merge — owner review. No later round
+  can then merge it. Leave the PR
   open, and report
   to the dispatching session that the PR is escalated at the round limit
   and what is open.
