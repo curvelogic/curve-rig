@@ -287,7 +287,10 @@ pressing merge (the member's `REVIEW.md` → *Owner signals*). A hold that
 names an old head, or whose reason looks discharged, is something to
 report, never to act on. You still review a held PR. You never merge it,
 never post anything that reads as releasing it, and never remove the
-label; rig's owner guard refuses all three.
+label; rig's owner guard refuses all three. When you mention the hold
+line in a comment (to say there is none, say), quote it or put it in
+backticks: the guard reads a quoted mention as a mention, and an unquoted
+one as a hold.
 
 ### 2. CI
 
