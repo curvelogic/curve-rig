@@ -62,14 +62,15 @@ themselves.
      them, version and lockfile only: a change to a tool's configuration,
      or to how the check invokes it, stays the owner's, and rig-review
      reads the tool's release notes for anything that makes it check
-     less. It reaches a tool only where every workflow that runs it
-     declares read-only `permissions:` and uses no secrets, as the
-     routine-CI class below does for actions. A GitHub Action is not a
+     less. It reaches a tool only where every job that runs it has
+     read-only `permissions:` and uses no secrets, and no package the
+     bump changes has an install script (rig-review applies the same
+     line). A GitHub Action is not a
      package: its bumps come under that class.
 
 | A Dependabot PR that bumps one existing dependency to a patch or minor release, and changes nothing but that dependency's version and the lockfile entries the bump brings: no package added to the lockfile, none moved across a major version, none fetched from a different source (registry, URL or git repository), and no tool CI or the check runs. On a 0.x version, a change to the first non-zero part (0.3 to 0.4, 0.0.3 to 0.0.4) is a major bump. | agent-merged after review |
 
-| A Dependabot PR that bumps one existing dependency, a tool CI or the check runs among them, to a patch or minor release, and changes nothing but that dependency's version and the lockfile entries the bump brings: no package added to the lockfile, none moved across a major version, none fetched from a different source (registry, URL or git repository), and no change to a tool's configuration or to how the check invokes it. For a tool, every workflow that runs it declares read-only `permissions:` and uses no secrets, and nothing in its release notes from the old version to the new disables, skips or loosens a check or changes a default so it checks less. On a 0.x version, a change to the first non-zero part (0.3 to 0.4, 0.0.3 to 0.0.4) is a major bump. | agent-merged after review |
+| A Dependabot PR that bumps one existing dependency, a tool CI or the check runs among them, to a patch or minor release, and changes nothing but that dependency's version and the lockfile entries the bump brings: no package added to the lockfile, none moved across a major version, none fetched from a different source (registry, URL or git repository), and no change to a tool's configuration or to how the check invokes it. For a tool, every job that runs it, directly or through a script, another tool or a tool's configuration, has read-only `permissions:` (its own or its workflow's) and uses no secrets (a read-only `github.token` used only to install packages is not a secret), and no package whose lockfile entry the bump changes has an install script in its old or new version. Nothing in its release notes from the old version to the new disables, skips or loosens a check or changes a default so it checks less. On a 0.x version, a change to the first non-zero part (0.3 to 0.4, 0.0.3 to 0.0.4) is a major bump. | agent-merged after review |
 
      Optional, with one of the rows above: major-version bumps get a
      second independent review instead of the owner. Neither reviewer runs
