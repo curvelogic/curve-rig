@@ -144,17 +144,26 @@ check runs, installed as a package (a linter, test runner or type
 checker), and the lockfile entries the bump brings, where a Dependabot row
 of `REVIEW.md`, read from the base branch, covers tools CI or the check
 runs in its own words and the PR fits that row entirely. Gate 7 then
-applies that row's rule. It holds only where every job that runs the
-tool, directly or through a script, another tool or a tool's
-configuration, has read-only `permissions:` (its own or its workflow's)
-and uses no secrets, and no package whose lockfile entry the bump changes
-has an install script in its old or new version: an install script runs
-in every job that installs packages, secrets or not. A read-only
-`github.token` used only to install packages is not a secret here.
-Secrets in jobs that do not run the tool do not count. Where a job that
-runs the tool has write access or a secret, the rule above for
-privileged workflows wins. A member's `REVIEW.md` may draw this line more
-strictly, never more loosely. You still run nothing from it, CI's result
+applies that row's rule. It holds only where all of these are true:
+- every job that runs the tool, directly or through a script, another
+  tool or a tool's configuration, declares read-only `permissions:` (its
+  own or its workflow's; a job that inherits the repository default
+  counts as write) and uses no secrets. A `github.token` with read-only
+  permissions, passed only to the step that installs packages, is not a
+  secret here;
+- no such job hands anything on to a job with write access or a secret:
+  no artifact, output or saved cache it produces is used there;
+- those jobs run on GitHub-hosted runners, which keep nothing between
+  jobs;
+- no package whose lockfile entry the bump changes runs code when it is
+  installed or built (npm lifecycle scripts, a Python build backend or
+  `setup.py`, a Cargo `build.rs`, a native extension), judged from its
+  old and new published packages, not from a lockfile flag alone. Such
+  code runs in every job that installs packages, secrets or not.
+Secrets in jobs that neither run the tool nor receive anything from one
+do not count. Where any of these fails, the rule above for privileged
+workflows wins. A member's `REVIEW.md` may draw this line more strictly,
+never more loosely. You still run nothing from it, CI's result
 on the current head stands in for the check, and you read the tool's release notes from
 the old version to the new: one that disables, skips or loosens a check,
 or changes a default so the tool checks less, makes the PR the owner's,
@@ -271,11 +280,15 @@ does not apply, and your comment says that you ran nothing and relied on
 CI. Wherever CI stands in for the check, it counts only if the jobs that
 run the check command ran on the current head and passed: one skipped,
 by a condition or a missing secret, ran nothing, and leaves gate 5 unmet.
-A job skipped by a path filter is different when the filter is the base
-branch's, the PR changes neither it nor any path it guards, and the job
-checks only those paths: there is nothing for it to check, so that part
-of gate 5 is met. Name the skipped job and why it is met in your comment.
-Any other path-filter skip leaves gate 5 unmet.
+A job skipped by a `paths:` filter is different when all of these hold:
+the filter and the workflow are the base branch's; the PR's full list of
+changed files (every page of it, not GitHub's first 300) matches none of
+the filter's paths; and the PR changes no file the job reads to run, such
+as the lockfiles, manifests and tool configuration it uses, the workflow
+itself, or any action it calls. Then there is nothing for the job to
+check, and that part of gate 5 is met. Name the skipped job in your
+comment and say why it is met. A `paths-ignore` filter, a filter the PR
+changes, or a job whose inputs you cannot tell all leave gate 5 unmet.
 
 **Exercising code that writes elsewhere.** Never let a review write to a
 shared remote, a deployment or a tracker. Run such code against copies
